@@ -34,9 +34,12 @@ if __name__ == '__main__':
     parser.add_argument('--gpu_actor', type=int, default=20, help='batch bpu actor')
     parser.add_argument('--p_mcts_num', type=int, default=8, help='number of parallel mcts')
     parser.add_argument('--seed', type=int, default=0, help='seed (default: %(default)s)')
-    parser.add_argument('--num_gpus', type=int, default=4, help='gpus available')
-    parser.add_argument('--num_cpus', type=int, default=80, help='cpus available')
-    parser.add_argument('--gpu_mem', type=int, default=20, help='mem available per gpu')
+    parser.add_argument('--num_gpus', type=int,
+                        default=1, help='gpus available')
+    parser.add_argument('--num_cpus', type=int,
+                        default=6, help='cpus available')
+    parser.add_argument('--gpu_mem', type=int, default=5,
+                        help='mem available per gpu')
     parser.add_argument('--revisit_policy_search_rate', type=float, default=0.99,
                         help='Rate at which target policy is re-estimated (default: %(default)s)')
     parser.add_argument('--use_root_value', action='store_true',
