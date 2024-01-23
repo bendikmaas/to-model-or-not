@@ -32,6 +32,7 @@ class BaseConfig(object):
                  checkpoint_interval: int,
                  target_model_interval: int,
                  save_ckpt_interval: int,
+                 recording_interval: int,
                  log_interval: int,
                  vis_interval: int,
                  max_moves: int,

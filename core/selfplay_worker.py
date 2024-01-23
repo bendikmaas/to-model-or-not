@@ -15,7 +15,7 @@ from core.utils import select_action, prepare_observation_lst
 
 @ray.remote(num_gpus=0.125)
 class DataWorker(object):
-    def __init__(self, rank, replay_buffer, storage, config):
+    def __init__(self, rank, replay_buffer, storage, config, record_video=False):
         """Data Worker for collecting data through self-play
         Parameters
         ----------
@@ -30,12 +30,14 @@ class DataWorker(object):
         self.config = config
         self.storage = storage
         self.replay_buffer = replay_buffer
+        self.record_video = record_video
         # double buffering when data is sufficient
         self.trajectory_pool = []
         self.pool_size = 1
         self.device = self.config.device
         self.gap_step = self.config.num_unroll_steps + self.config.td_steps
         self.last_model_index = -1
+
 
     def put(self, data):
         # put a game history into the pool
@@ -116,13 +118,18 @@ class DataWorker(object):
         model.eval()
 
         start_training = False
-        envs = [self.config.new_game(self.config.seed + self.rank * i) for i in range(env_nums)]
+        envs = [self.config.new_game(
+            seed=self.config.seed + self.rank * i,
+            save_video=(self.record_video and i == 0)
+        )
+            for i in range(env_nums)]
 
         def _get_max_entropy(action_space):
             p = 1.0 / action_space
             ep = - action_space * p * np.log2(p)
             return ep
         max_visit_entropy = _get_max_entropy(self.config.action_space_size)
+
         # 100k benchmark
         total_transitions = 0
         # max transition to collect for this data worker
