@@ -475,7 +475,8 @@ def train(config, summary_writer, model_path=None):
     workers += [gpu_worker.run.remote() for gpu_worker in gpu_workers]
 
     # self-play workers
-    data_workers = [DataWorker.remote(rank, replay_buffer, storage, config) for rank in range(0, config.num_actors)]
+    data_workers = [DataWorker.remote(
+        rank, replay_buffer, storage, config, record_video=rank == 0) for rank in range(0, config.num_actors)]
     workers += [worker.run.remote() for worker in data_workers]
     # test workers
     workers += [_test.remote(config, storage)]

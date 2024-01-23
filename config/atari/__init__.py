@@ -19,6 +19,7 @@ class AtariConfig(BaseConfig):
             checkpoint_interval=100,
             target_model_interval=200,
             save_ckpt_interval=5000,
+            recording_interval=2,
             max_moves=108000,
             test_max_moves=12000,
             history_length=400,
@@ -28,7 +29,7 @@ class AtariConfig(BaseConfig):
             num_simulations=50,
             batch_size=256,
             td_steps=5,
-            num_actors=1,
+            num_actors=12,
             # network initialization/ & normalization
             episode_life=True,
             init_zero=True,
@@ -148,8 +149,12 @@ class AtariConfig(BaseConfig):
             env.seed(seed)
 
         if save_video:
-            from gym.wrappers import Monitor
-            env = Monitor(env, directory=save_path, force=True, video_callable=video_callable, uid=uid)
+            from gym.wrappers.record_video import RecordVideo
+            name_prefix = "test" if final_test else "train"
+            env = RecordVideo(env,
+                              video_folder=save_path,
+                              episode_trigger=lambda episode_id: episode_id % self.recording_interval == 0,
+                              name_prefix=name_prefix)
         return AtariWrapper(env, discount=self.discount, cvt_string=self.cvt_string)
 
     def scalar_reward_loss(self, prediction, target):

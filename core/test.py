@@ -28,7 +28,8 @@ def _test(config, shared_storage):
             test_model.set_weights(ray.get(shared_storage.get_weights.remote()))
             test_model.eval()
 
-            test_score, _ = test(config, test_model, counter, config.test_episodes, config.device, False, save_video=False)
+            test_score, _ = test(config, test_model, counter,
+                                 config.test_episodes, config.device, False, save_video=config.save_video)
             mean_score = test_score.mean()
             std_score = test_score.std()
             print('Start evaluation at step {}.'.format(counter))
