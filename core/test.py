@@ -98,7 +98,7 @@ def test(config, model, counter, test_episodes, device, render, save_video=False
         while not dones.all():
             if render:
                 for i in range(test_episodes):
-                    envs[i].render()
+                    envs[i].render("rgb_array")
 
             if config.image_based:
                 stack_obs = []
