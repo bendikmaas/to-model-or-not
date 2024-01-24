@@ -40,8 +40,8 @@ class AtariConfig(BaseConfig):
             # lr scheduler
             lr_warm_up=0.01,
             lr_init=0.2,
-            lr_decay_rate=0.5,
-            lr_decay_steps=25000,
+            lr_decay_rate=0.1,
+            lr_decay_steps=50000,
             auto_td_steps_ratio=0.3,
             # replay window
             start_transitions=8,
