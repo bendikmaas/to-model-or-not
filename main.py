@@ -102,8 +102,6 @@ if __name__ == '__main__':
             total_steps = game_config.training_steps + game_config.last_steps
             test_score, test_path = test(game_config, model.to(device), total_steps, game_config.test_episodes,
                                          device, render=True, save_video=args.save_video, final_test=True, use_pb=True)
-            ray.shutdown()
-            exit()
             mean_score = test_score.mean()
             std_score = test_score.std()
 

@@ -223,6 +223,7 @@ class BaseConfig(object):
 
         # testing arguments
         self.test_interval = test_interval
+        self.recording_interval = recording_interval
         self.test_episodes = test_episodes
 
         # Root prior exploration noise.
