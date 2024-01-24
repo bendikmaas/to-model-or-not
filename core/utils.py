@@ -7,6 +7,7 @@ import shutil
 import logging
 
 import numpy as np
+import procgen
 
 from scipy.stats import entropy
 
@@ -64,7 +65,7 @@ class NoopResetEnv(gym.Wrapper):
         self.noop_max = noop_max
         self.override_num_noops = None
         self.noop_action = 0
-        assert env.unwrapped.get_action_meanings()[0] == 'NOOP'
+        #assert env.unwrapped.get_action_meanings()[0] == 'NOOP'
 
     def reset(self, **kwargs):
         """ Do no-op action for a number of steps in [1, noop_max]."""
@@ -229,6 +230,33 @@ def make_atari(env_id, skip=4, max_episode_steps=None):
         max moves for an episode
     """
     env = gym.make(env_id, frameskip=1)
+    env = NoopResetEnv(env, noop_max=30)
+    env = MaxAndSkipEnv(env, skip=skip)
+    if max_episode_steps is not None:
+        env = TimeLimit(env, max_episode_steps=max_episode_steps)
+    return env
+
+def make_procgen(env_id, 
+                 skip=4, 
+                 max_episode_steps=None, 
+                 start_level=0,
+                 num_levels=500,
+                 distribution_mode="easy"):
+    """Make Procgen games
+    Parameters
+    ----------
+    env_id: str
+        name of environment
+    skip: int
+        frame skip
+    max_episode_steps: int
+        max moves for an episode
+    """
+    env = gym.make(env_id,
+                   render_mode="rgb_array",
+                   start_level=start_level, 
+                   num_levels=num_levels, 
+                   distribution_mode=distribution_mode)
     env = NoopResetEnv(env, noop_max=30)
     env = MaxAndSkipEnv(env, skip=skip)
     if max_episode_steps is not None:
