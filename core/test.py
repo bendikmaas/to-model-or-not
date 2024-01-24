@@ -73,7 +73,7 @@ def test(config, model, counter, test_episodes, device, render, save_video=False
     """
     model.to(device)
     model.eval()
-    save_path = os.path.join(config.exp_path, 'recordings', 'step_{}'.format(counter))
+    save_path = os.path.join(config.exp_path, 'recordings')
 
     if use_pb:
         pb = tqdm(np.arange(config.max_moves), leave=True)

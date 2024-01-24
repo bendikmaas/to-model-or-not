@@ -1,3 +1,4 @@
+import os
 import ray
 import time
 import torch
@@ -118,9 +119,11 @@ class DataWorker(object):
         model.eval()
 
         start_training = False
+        save_path = os.path.join(self.config.exp_path, "recordings")
         envs = [self.config.new_game(
             seed=self.config.seed + self.rank * i,
-            save_video=(self.record_video and i == 0)
+            save_video=(self.record_video and i == 0),
+            save_path=save_path
         )
             for i in range(env_nums)]
 

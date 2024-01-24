@@ -19,7 +19,7 @@ class AtariConfig(BaseConfig):
             checkpoint_interval=100,
             target_model_interval=200,
             save_ckpt_interval=5000,
-            recording_interval=2,
+            recording_interval=5,
             max_moves=108000,
             test_max_moves=12000,
             history_length=400,
@@ -29,7 +29,7 @@ class AtariConfig(BaseConfig):
             num_simulations=50,
             batch_size=256,
             td_steps=5,
-            num_actors=12,
+            num_actors=6,
             # network initialization/ & normalization
             episode_life=True,
             init_zero=True,
@@ -40,8 +40,8 @@ class AtariConfig(BaseConfig):
             # lr scheduler
             lr_warm_up=0.01,
             lr_init=0.2,
-            lr_decay_rate=0.1,
-            lr_decay_steps=100000,
+            lr_decay_rate=0.5,
+            lr_decay_steps=25000,
             auto_td_steps_ratio=0.3,
             # replay window
             start_transitions=8,
