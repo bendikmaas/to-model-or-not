@@ -292,7 +292,7 @@ class BaseConfig(object):
         self.pred_hid = pred_hid
         self.pred_out = pred_out
 
-    def visit_softmax_temperature_fn(self, num_moves, trained_steps):
+    def visit_softmax_temperature_fn(self, trained_steps):
         raise NotImplementedError
 
     def set_game(self, env_name):

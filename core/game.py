@@ -73,7 +73,7 @@ class GameHistory:
         Parameters
         ----------
         init_observations: list
-            list of the stack observations in the previous time steps
+            list containing a observation stack from the previous time steps
         """
         self.child_visits = []
         self.root_values = []

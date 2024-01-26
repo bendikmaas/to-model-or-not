@@ -54,13 +54,13 @@ class DataWorker(object):
             self.replay_buffer.save_pools.remote(self.trajectory_pool, self.gap_step)
             del self.trajectory_pool[:]
 
-    def put_last_trajectory(self, i, last_game_histories, last_game_priorities, game_histories):
-        """put the last game history into the pool if the current game is finished
+    def put_prev_trajectory(self, i, prev_game_histories, prev_game_priorities, game_histories):
+        """Put the previous game history into the trajectory pool when the current game is finished
         Parameters
         ----------
-        last_game_histories: list
-            list of the last game histories
-        last_game_priorities: list
+        prev_game_histories: list
+            list of game histories for previous
+        prev_game_priorities: list
             list of the last game priorities
         game_histories: list
             list of the current game histories
@@ -83,15 +83,15 @@ class DataWorker(object):
         pad_root_values_lst = game_histories[i].root_values[beg_index:end_index]
 
         # pad over and save
-        last_game_histories[i].pad_over(pad_obs_lst, pad_reward_lst, pad_root_values_lst, pad_child_visits_lst)
-        last_game_histories[i].game_over()
+        prev_game_histories[i].pad_over(pad_obs_lst, pad_reward_lst, pad_root_values_lst, pad_child_visits_lst)
+        prev_game_histories[i].game_over()
 
-        self.put((last_game_histories[i], last_game_priorities[i]))
+        self.put((prev_game_histories[i], prev_game_priorities[i]))
         self.free()
 
         # reset last block
-        last_game_histories[i] = None
-        last_game_priorities[i] = None
+        prev_game_histories[i] = None
+        prev_game_priorities[i] = None
 
     def get_priorities(self, i, pred_values_lst, search_values_lst):
         # obtain the priorities at index i
@@ -112,8 +112,7 @@ class DataWorker(object):
             traceback.print_exc()
 
     def _run(self):
-        # number of parallel mcts
-        env_nums = self.config.p_mcts_num
+        num_parallel_envs = self.config.p_mcts_num
         model = self.config.get_uniform_network()
         model.to(self.device)
         model.eval()
@@ -125,7 +124,7 @@ class DataWorker(object):
             save_video=(self.record_video and i == 0),
             save_path=save_path
         )
-            for i in range(env_nums)]
+            for i in range(num_parallel_envs)]
 
         def _get_max_entropy(action_space):
             p = 1.0 / action_space
@@ -133,155 +132,157 @@ class DataWorker(object):
             return ep
         max_visit_entropy = _get_max_entropy(self.config.action_space_size)
 
-        # 100k benchmark
-        total_transitions = 0
-        # max transition to collect for this data worker
+        num_transitions = 0
         max_transitions = self.config.total_transitions // self.config.num_actors
+        
+        # Self-play loop that runs until maximum number of transitions are gathered
         with torch.no_grad():
             while True:
+                
+                # Break self-play loop when training is finished
                 trained_steps = ray.get(self.storage.get_counter.remote())
-                # training finished
                 if trained_steps >= self.config.training_steps + self.config.last_steps:
                     print("Training finished. Sleeping.")
                     time.sleep(30)
                     break
 
+                # Reset environments and containers
                 init_obses = [env.reset() for env in envs]
-                dones = np.array([False for _ in range(env_nums)])
+                dones = np.array([False for _ in range(num_parallel_envs)])
                 game_histories = [GameHistory(envs[_].env.action_space, max_length=self.config.history_length,
-                                              config=self.config) for _ in range(env_nums)]
-                last_game_histories = [None for _ in range(env_nums)]
-                last_game_priorities = [None for _ in range(env_nums)]
+                                              config=self.config) for _ in range(num_parallel_envs)]
+                prev_game_histories = [None for _ in range(num_parallel_envs)]
+                prev_game_priorities = [None for _ in range(num_parallel_envs)]
 
-                # stack observation windows in boundary: s398, s399, s400, current s1 -> for not init trajectory
-                stack_obs_windows = [[] for _ in range(env_nums)]
-
-                for i in range(env_nums):
+                # Pad start of GameHistories with stack_observations many initial observations
+                stack_obs_windows = [[] for _ in range(num_parallel_envs)]
+                for i in range(num_parallel_envs):
                     stack_obs_windows[i] = [init_obses[i] for _ in range(self.config.stacked_observations)]
                     game_histories[i].init(stack_obs_windows[i])
 
-                # for priorities in self-play
-                search_values_lst = [[] for _ in range(env_nums)]
-                pred_values_lst = [[] for _ in range(env_nums)]
+                # For priorities in self-play
+                search_values_lst = [[] for _ in range(num_parallel_envs)]
+                pred_values_lst = [[] for _ in range(num_parallel_envs)]
 
-                # some logs
-                eps_ori_reward_lst, eps_reward_lst, eps_steps_lst, visit_entropies_lst = np.zeros(env_nums), np.zeros(env_nums), np.zeros(env_nums), np.zeros(env_nums)
-                step_counter = 0
-
-                self_play_rewards = 0.
-                self_play_ori_rewards = 0.
-                self_play_moves = 0.
-                self_play_episodes = 0.
-
-                self_play_rewards_max = - np.inf
-                self_play_moves_max = 0
-
+                # Lists for logging across parallel environments
+                environment_returns, clipped_returns, eps_steps, visit_entropies = (np.zeros(num_parallel_envs), 
+                                                                                          np.zeros(num_parallel_envs), 
+                                                                                          np.zeros(num_parallel_envs), 
+                                                                                          np.zeros(num_parallel_envs))
+                summed_return = 0.
+                summed_clipped_return = 0.
+                total_steps = 0.
+                num_episodes = 0.
+                max_return = - np.inf
+                max_eps_steps = 0
                 self_play_visit_entropy = []
                 other_dist = {}
 
-                print("Beginning self play")
 
-                # play games until max moves
+                # Play games in parallel until max moves or all done
+                print("Beginning self play")
+                step_counter = 0
                 while not dones.all() and (step_counter <= self.config.max_moves):
                     try:
+                        # Check if training has started
                         if not start_training:
                             start_training = ray.get(self.storage.get_start_signal.remote())
-
-                        # get model
+                        
+                        # Return if training is finished
                         trained_steps = ray.get(self.storage.get_counter.remote())
                         if trained_steps >= self.config.training_steps + self.config.last_steps:
-                            # training is finished
                             print("Training finished. Sleeping.")
                             time.sleep(30)
                             return
-                        if start_training and (total_transitions / max_transitions) > (trained_steps / self.config.training_steps):
-                            # self-play is faster than training speed or finished
+                        
+                        # Wait if self-play is faster than training speed
+                        if start_training and (num_transitions / max_transitions) > (trained_steps / self.config.training_steps):
                             time.sleep(2)
                             continue
 
-                        # set temperature for distributions
+                        # Set temperature for distributions
                         _temperature = np.array(
-                            [self.config.visit_softmax_temperature_fn(num_moves=0, trained_steps=trained_steps) for env in
+                            [self.config.visit_softmax_temperature_fn(trained_steps=trained_steps) for env in
                             envs])
 
-                        # update the models in self-play every checkpoint_interval
+                        # Update the models in self-play every checkpoint_interval
                         new_model_index = trained_steps // self.config.checkpoint_interval
                         if new_model_index > self.last_model_index:
                             self.last_model_index = new_model_index
-                            # update model
                             weights = ray.get(self.storage.get_weights.remote())
                             model.set_weights(weights)
                             model.to(self.device)
                             model.eval()
 
                             # log if more than 1 env in parallel because env will reset in this loop.
-                            if env_nums > 1:
+                            if num_parallel_envs > 1:
                                 if len(self_play_visit_entropy) > 0:
-                                    visit_entropies = np.array(self_play_visit_entropy).mean()
-                                    visit_entropies /= max_visit_entropy
+                                    norm_visit_entropies = np.array(self_play_visit_entropy).mean()
+                                    norm_visit_entropies /= max_visit_entropy
                                 else:
-                                    visit_entropies = 0.
+                                    norm_visit_entropies = 0.
 
-                                if self_play_episodes > 0:
-                                    log_self_play_moves = self_play_moves / self_play_episodes
-                                    log_self_play_rewards = self_play_rewards / self_play_episodes
-                                    log_self_play_ori_rewards = self_play_ori_rewards / self_play_episodes
+                                if num_episodes > 0:
+                                    avg_steps = total_steps / num_episodes
+                                    avg_clipped_return = summed_clipped_return / num_episodes
+                                    avg_return = summed_return / num_episodes
+                                    normalized_avg_return = (avg_return - self.config.min_return) / (self.config.max_return - self.config.min_return)
                                 else:
-                                    log_self_play_moves = 0
-                                    log_self_play_rewards = 0
-                                    log_self_play_ori_rewards = 0
+                                    avg_steps = 0
+                                    avg_clipped_return = 0
+                                    avg_return = 0
+                                    normalized_avg_return = 0
 
-                                self.storage.set_data_worker_logs.remote(log_self_play_moves, self_play_moves_max,
-                                                                                log_self_play_ori_rewards, log_self_play_rewards,
-                                                                                self_play_rewards_max, _temperature.mean(),
-                                                                                visit_entropies, 0,
+                                self.storage.set_data_worker_logs.remote(avg_steps, max_eps_steps,
+                                                                                avg_return, avg_clipped_return,
+                                                                                normalized_avg_return,
+                                                                                max_return, _temperature.mean(),
+                                                                                norm_visit_entropies, 0,
                                                                                 other_dist)
-                                self_play_rewards_max = - np.inf
+                                max_return = - np.inf
 
                         step_counter += 1
-                        for i in range(env_nums):
-                            # reset env if finished
+                        # Reset env if finished
+                        for i in range(num_parallel_envs):
                             if dones[i]:
+                                # Pad over last block trajectory
+                                if prev_game_histories[i] is not None:
+                                    self.put_prev_trajectory(i, prev_game_histories, prev_game_priorities, game_histories)
 
-                                # pad over last block trajectory
-                                if last_game_histories[i] is not None:
-                                    self.put_last_trajectory(i, last_game_histories, last_game_priorities, game_histories)
-
-                                # store current block trajectory
+                                # Store current block trajectory
                                 priorities = self.get_priorities(i, pred_values_lst, search_values_lst)
                                 game_histories[i].game_over()
 
                                 self.put((game_histories[i], priorities))
                                 self.free()
 
-                                # reset the finished env and new a env
+                                # Reset the finished env
                                 envs[i].close()
                                 init_obs = envs[i].reset()
                                 game_histories[i] = GameHistory(env.env.action_space, max_length=self.config.history_length,
                                                                 config=self.config)
-                                last_game_histories[i] = None
-                                last_game_priorities[i] = None
+                                prev_game_histories[i] = None
+                                prev_game_priorities[i] = None
                                 stack_obs_windows[i] = [init_obs for _ in range(self.config.stacked_observations)]
                                 game_histories[i].init(stack_obs_windows[i])
 
-                                # log
-                                self_play_rewards_max = max(self_play_rewards_max, eps_reward_lst[i])
-                                self_play_moves_max = max(self_play_moves_max, eps_steps_lst[i])
-                                self_play_rewards += eps_reward_lst[i]
-                                self_play_ori_rewards += eps_ori_reward_lst[i]
-                                self_play_visit_entropy.append(visit_entropies_lst[i] / eps_steps_lst[i])
-                                self_play_moves += eps_steps_lst[i]
-                                self_play_episodes += 1
+                                # Log
+                                max_return = max(max_return, clipped_returns[i])
+                                max_eps_steps = max(max_eps_steps, eps_steps[i])
+                                summed_clipped_return += clipped_returns[i]
+                                summed_return += environment_returns[i]
+                                self_play_visit_entropy.append(visit_entropies[i] / eps_steps[i])
+                                total_steps += eps_steps[i]
+                                num_episodes += 1
 
                                 pred_values_lst[i] = []
                                 search_values_lst[i] = []
-                                # end_tags[i] = False
-                                eps_steps_lst[i] = 0
-                                eps_reward_lst[i] = 0
-                                eps_ori_reward_lst[i] = 0
-                                visit_entropies_lst[i] = 0
+                                eps_steps[i] = 0
+                                clipped_returns[i] = 0
+                                environment_returns[i] = 0
+                                visit_entropies[i] = 0
 
-                        # stack obs for model inference
+                        # Prepare observations for model inference
                         stack_obs = [game_history.step_obs() for game_history in game_histories]
                         if self.config.image_based:
                             stack_obs = prepare_observation_lst(stack_obs)
@@ -290,6 +291,7 @@ class DataWorker(object):
                             stack_obs = [game_history.step_obs() for game_history in game_histories]
                             stack_obs = torch.from_numpy(np.array(stack_obs)).to(self.device)
 
+                        # Get initial inference
                         if self.config.amp_type == 'torch_amp':
                             with autocast():
                                 network_output = model.initial_inference(stack_obs.float())
@@ -300,64 +302,64 @@ class DataWorker(object):
                         value_prefix_pool = network_output.value_prefix
                         policy_logits_pool = network_output.policy_logits.tolist()
 
-                        roots = cytree.Roots(env_nums, self.config.action_space_size, self.config.num_simulations)
-                        noises = [np.random.dirichlet([self.config.root_dirichlet_alpha] * self.config.action_space_size).astype(np.float32).tolist() for _ in range(env_nums)]
+                        # Run parallel MCTS to get policies
+                        roots = cytree.Roots(num_parallel_envs, self.config.action_space_size, self.config.num_simulations)
+                        noises = [np.random.dirichlet([self.config.root_dirichlet_alpha] * self.config.action_space_size).astype(np.float32).tolist() 
+                                  for _ in range(num_parallel_envs)]
                         roots.prepare(self.config.root_exploration_fraction, noises, value_prefix_pool, policy_logits_pool)
-                        # do MCTS for a policy
                         MCTS(self.config).search(roots, model, hidden_state_roots, reward_hidden_roots)
-
                         roots_distributions = roots.get_distributions()
                         roots_values = roots.get_values()
-                        for i in range(env_nums):
+                        
+                        # Select action and step in each environment
+                        for i in range(num_parallel_envs):
                             deterministic = False
-                            if start_training:
-                                distributions, value, temperature, env = roots_distributions[i], roots_values[i], _temperature[i], envs[i]
-                            else:
-                                # before starting training, use random policy
-                                value, temperature, env = roots_values[i], _temperature[i], envs[i]
-                                distributions = np.ones(self.config.action_space_size)
-
+                            
+                            # Before starting training, use a random policy
+                            distributions = roots_distributions[i] if start_training else np.ones(self.config.action_space)
+                            value, temperature, env = roots_values[i], _temperature[i], envs[i]
+                            
+                            # Select action
                             action, visit_entropy = select_action(distributions, temperature=temperature, deterministic=deterministic)
-                            obs, ori_reward, done, info = env.step(action)
-                            # clip the reward
+                            obs, reward, done, info = env.step(action)
+                            # Clip the reward
                             if self.config.clip_reward:
-                                clip_reward = np.sign(ori_reward)
+                                clip_reward = np.sign(reward)
                             else:
-                                clip_reward = ori_reward
+                                clip_reward = reward
 
-                            # store data
+                            # Update game history
                             game_histories[i].store_search_stats(distributions, value)
                             game_histories[i].append(action, obs, clip_reward)
 
-                            eps_reward_lst[i] += clip_reward
-                            eps_ori_reward_lst[i] += ori_reward
+                            # Update counters/loggers
+                            clipped_returns[i] += clip_reward
+                            environment_returns[i] += reward
                             dones[i] = done
-                            visit_entropies_lst[i] += visit_entropy
-
-                            eps_steps_lst[i] += 1
-                            total_transitions += 1
+                            visit_entropies[i] += visit_entropy
+                            eps_steps[i] += 1
+                            num_transitions += 1
 
                             if self.config.use_priority and not self.config.use_max_priority and start_training:
                                 pred_values_lst[i].append(network_output.value[i].item())
                                 search_values_lst[i].append(roots_values[i])
 
-                            # fresh stack windows
+                            # Shift stack window one step
                             del stack_obs_windows[i][0]
                             stack_obs_windows[i].append(obs)
 
-                            # if game history is full;
-                            # we will save a game history if it is the end of the game or the next game history is finished.
+                            # If game history is full we will save the last game history if it exists
                             if game_histories[i].is_full():
                                 # pad over last block trajectory
-                                if last_game_histories[i] is not None:
-                                    self.put_last_trajectory(i, last_game_histories, last_game_priorities, game_histories)
+                                if prev_game_histories[i] is not None:
+                                    self.put_prev_trajectory(i, prev_game_histories, prev_game_priorities, game_histories)
 
                                 # calculate priority
                                 priorities = self.get_priorities(i, pred_values_lst, search_values_lst)
 
                                 # save block trajectory
-                                last_game_histories[i] = game_histories[i]
-                                last_game_priorities[i] = priorities
+                                prev_game_histories[i] = game_histories[i]
+                                prev_game_priorities[i] = priorities
 
                                 # new block trajectory
                                 game_histories[i] = GameHistory(envs[i].env.action_space, max_length=self.config.history_length,
@@ -366,14 +368,15 @@ class DataWorker(object):
                     except Exception:
                         traceback.print_exc()
 
-                for i in range(env_nums):
+                # Close environments
+                for i in range(num_parallel_envs):
                     env = envs[i]
                     env.close()
 
                     if dones[i]:
                         # pad over last block trajectory
-                        if last_game_histories[i] is not None:
-                            self.put_last_trajectory(i, last_game_histories, last_game_priorities, game_histories)
+                        if prev_game_histories[i] is not None:
+                            self.put_prev_trajectory(i, prev_game_histories, prev_game_priorities, game_histories)
 
                         # store current block trajectory
                         priorities = self.get_priorities(i, pred_values_lst, search_values_lst)
@@ -382,34 +385,36 @@ class DataWorker(object):
                         self.put((game_histories[i], priorities))
                         self.free()
 
-                        self_play_rewards_max = max(self_play_rewards_max, eps_reward_lst[i])
-                        self_play_moves_max = max(self_play_moves_max, eps_steps_lst[i])
-                        self_play_rewards += eps_reward_lst[i]
-                        self_play_ori_rewards += eps_ori_reward_lst[i]
-                        self_play_visit_entropy.append(visit_entropies_lst[i] / eps_steps_lst[i])
-                        self_play_moves += eps_steps_lst[i]
-                        self_play_episodes += 1
+                        max_return = max(max_return, clipped_returns[i])
+                        max_eps_steps = max(max_eps_steps, eps_steps[i])
+                        summed_clipped_return += clipped_returns[i]
+                        summed_return += environment_returns[i]
+                        self_play_visit_entropy.append(visit_entropies[i] / eps_steps[i])
+                        total_steps += eps_steps[i]
+                        num_episodes += 1
                     else:
                         # if the final game history is not finished, we will not save this data.
-                        total_transitions -= len(game_histories[i])
+                        num_transitions -= len(game_histories[i])
 
-                # logs
-                visit_entropies = np.array(self_play_visit_entropy).mean()
-                visit_entropies /= max_visit_entropy
+                # Logs
+                norm_visit_entropies = np.array(self_play_visit_entropy).mean()
+                norm_visit_entropies /= max_visit_entropy
 
-                if self_play_episodes > 0:
-                    log_self_play_moves = self_play_moves / self_play_episodes
-                    log_self_play_rewards = self_play_rewards / self_play_episodes
-                    log_self_play_ori_rewards = self_play_ori_rewards / self_play_episodes
+                if num_episodes > 0:
+                    avg_steps = total_steps / num_episodes
+                    avg_return = summed_return / num_episodes
+                    avg_clipped_return = summed_clipped_return / num_episodes
+                    normalized_avg_return = (avg_return - self.config.min_return) / (self.config.max_return - self.config.min_return)
                 else:
-                    log_self_play_moves = 0
-                    log_self_play_rewards = 0
-                    log_self_play_ori_rewards = 0
+                    avg_steps = 0
+                    avg_return = 0
+                    avg_clipped_return = 0
 
                 other_dist = {}
+                
                 # send logs
-                self.storage.set_data_worker_logs.remote(log_self_play_moves, self_play_moves_max,
-                                                                log_self_play_ori_rewards, log_self_play_rewards,
-                                                                self_play_rewards_max, _temperature.mean(),
-                                                                visit_entropies, 0,
+                self.storage.set_data_worker_logs.remote(avg_steps, max_eps_steps,
+                                                                avg_return, avg_clipped_return, normalized_avg_return,
+                                                                max_return, _temperature.mean(),
+                                                                norm_visit_entropies, 0,
                                                                 other_dist)

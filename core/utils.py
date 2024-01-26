@@ -133,7 +133,8 @@ class MaxAndSkipEnv(gym.Wrapper):
         self.max_frame = np.zeros(env.observation_space.shape, dtype=np.uint8)
 
     def step(self, action):
-        """Repeat action, sum reward, and max over last observations."""
+        """Repeat action '_skip' times, sum up reward, and compute the 
+            max over the two last observations."""
         total_reward = 0.0
         done = None
         for i in range(self._skip):
@@ -246,11 +247,11 @@ def make_procgen(env_id,
     Parameters
     ----------
     env_id: str
-        name of environment
+        name of the environment
     skip: int
-        frame skip
+        number of frames to skip between each action
     max_episode_steps: int
-        max moves for an episode
+        max steps for an episode
     """
     env = gym.make(env_id,
                    render_mode="rgb_array",

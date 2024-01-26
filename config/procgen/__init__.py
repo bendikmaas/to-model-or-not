@@ -6,6 +6,8 @@ from core.dataset import Transforms
 from .env_wrapper import ProcgenWrapper
 from .model import EfficientZeroNet
 
+return_bounds = {"coinrun": (5.,10.),
+                 "chaser": (.5, 14.2)}
 
 class ProcgenConfig(BaseConfig):
     def __init__(self):
@@ -29,7 +31,7 @@ class ProcgenConfig(BaseConfig):
             num_simulations=50,
             batch_size=256,
             td_steps=5,
-            num_actors=6,
+            num_actors=1,
             # network initialization/ & normalization
             episode_life=True,
             init_zero=True,
@@ -83,7 +85,7 @@ class ProcgenConfig(BaseConfig):
         self.resnet_fc_policy_layers = [32]  # Define the hidden layers in the policy head of the prediction network
         self.downsample = True  # Downsample observations before representation network (See paper appendix Network Architecture)
 
-    def visit_softmax_temperature_fn(self, num_moves, trained_steps):
+    def visit_softmax_temperature_fn(self, trained_steps):
         if self.change_temperature:
             if trained_steps < 0.5 * (self.training_steps + self.last_steps):
                 return 1.0
@@ -103,7 +105,9 @@ class ProcgenConfig(BaseConfig):
         self.obs_shape = (obs_shape[0] * self.stacked_observations, obs_shape[1], obs_shape[2])
 
         game = self.new_game()
+        self.action_space = game.action_space_size
         self.action_space_size = game.action_space_size
+        self.min_return, self.max_return = return_bounds[env_name.split("-")[1]] 
 
     def get_uniform_network(self):
         return EfficientZeroNet(
@@ -141,10 +145,11 @@ class ProcgenConfig(BaseConfig):
         else:
             env = make_procgen(self.env_name, skip=self.frame_skip, max_episode_steps=self.max_moves)
 
-        env = WarpFrame(env, width=self.obs_shape[1], height=self.obs_shape[2], grayscale=self.gray_scale)
+        #env = WarpFrame(env, width=self.obs_shape[1], height=self.obs_shape[2], grayscale=self.gray_scale)
 
         if seed is not None:
-            env.seed(seed)
+            #env.seed(seed)
+            pass
 
         if save_video:
             from gym.wrappers.record_video import RecordVideo

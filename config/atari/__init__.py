@@ -83,7 +83,7 @@ class AtariConfig(BaseConfig):
         self.resnet_fc_policy_layers = [32]  # Define the hidden layers in the policy head of the prediction network
         self.downsample = True  # Downsample observations before representation network (See paper appendix Network Architecture)
 
-    def visit_softmax_temperature_fn(self, num_moves, trained_steps):
+    def visit_softmax_temperature_fn(self, trained_steps):
         if self.change_temperature:
             if trained_steps < 0.5 * (self.training_steps + self.last_steps):
                 return 1.0
