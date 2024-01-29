@@ -244,7 +244,7 @@ class BatchWorker_CPU(object):
                 time.sleep(1)
                 continue
 
-            ray_data_lst = [self.storage.get_counter.remote(), self.storage.get_target_weights.remote()]
+            ray_data_lst = [self.storage.get_training_step_counter.remote(), self.storage.get_target_weights.remote()]
             trained_steps, target_weights = ray.get(ray_data_lst)
 
             beta = self.beta_schedule.value(trained_steps)
@@ -518,7 +518,7 @@ class BatchWorker_GPU(object):
                 time.sleep(0.1)
                 continue
 
-            trained_steps = ray.get(self.storage.get_counter.remote())
+            trained_steps = ray.get(self.storage.get_training_step_counter.remote())
             if trained_steps >= self.config.training_steps + self.config.last_steps:
                 time.sleep(30)
                 break

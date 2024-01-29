@@ -298,7 +298,7 @@ class BaseConfig(object):
     def set_game(self, env_name):
         raise NotImplementedError
 
-    def new_game(self, seed=None, save_video=False, save_path=None, video_callable=None, uid=None, test=False) -> Game:
+    def new_game(self, seed=None, record_video=False, save_path=None, recording_interval=None, test=False) -> Game:
         """ returns a new instance of the game"""
         raise NotImplementedError
 
@@ -379,7 +379,6 @@ class BaseConfig(object):
 
     def set_config(self, args):
         # reset config from the args
-        self.set_game(args.env)
         self.case = args.case
         self.seed = args.seed
         if not args.use_priority:
@@ -395,6 +394,7 @@ class BaseConfig(object):
         self.auto_resume = args.auto_resume
         self.p_mcts_num = args.p_mcts_num
         self.use_root_value = args.use_root_value
+        self.set_game(args.env)
 
         if not self.do_consistency:
             self.consistency_coeff = 0

@@ -1,7 +1,9 @@
+import gym
+import procgen
 import torch
 
 from core.config import BaseConfig
-from core.utils import make_procgen, WarpFrame
+from core.utils import MaxAndSkipEnv, TimeLimit
 from core.dataset import Transforms
 from .env_wrapper import ProcgenWrapper
 from .model import EfficientZeroNet
@@ -12,7 +14,6 @@ return_bounds = {"coinrun": (5.,10.),
 class ProcgenConfig(BaseConfig):
     def __init__(self):
         super(ProcgenConfig, self).__init__(
-            training_steps=100000,
             last_steps=20000,
             test_interval=10000,
             log_interval=100,
@@ -21,7 +22,7 @@ class ProcgenConfig(BaseConfig):
             checkpoint_interval=100,
             target_model_interval=200,
             save_ckpt_interval=5000,
-            recording_interval=5,
+            recording_interval=25,
             max_moves=108000,
             test_max_moves=12000,
             history_length=400,
@@ -31,14 +32,15 @@ class ProcgenConfig(BaseConfig):
             num_simulations=50,
             batch_size=256,
             td_steps=5,
-            num_actors=1,
+            num_actors=2,
             # network initialization/ & normalization
             episode_life=True,
             init_zero=True,
             clip_reward=True,
             # storage efficient
-            cvt_string=True,
             image_based=True,
+            cvt_string=True,
+            training_steps=100000,
             # lr scheduler
             lr_warm_up=0.01,
             lr_init=0.2,
@@ -50,7 +52,7 @@ class ProcgenConfig(BaseConfig):
             total_transitions=100 * 1000,
             transition_num=1,
             # frame skip & stack observation
-            frame_skip=4,
+            frame_skip=2,
             stacked_observations=4,
             # coefficient
             reward_loss_coeff=1,
@@ -69,10 +71,11 @@ class ProcgenConfig(BaseConfig):
         self.max_moves //= self.frame_skip
         self.test_max_moves //= self.frame_skip
 
+
         self.start_transitions = self.start_transitions * 1000 // self.frame_skip
         self.start_transitions = max(1, self.start_transitions)
 
-        self.bn_mt = 0.1
+        self.bn_mt = 0.1  # BatchNorm momentum
         self.blocks = 1  # Number of blocks in the ResNet
         self.channels = 64  # Number of channels in the ResNet
         if self.gray_scale:
@@ -84,6 +87,12 @@ class ProcgenConfig(BaseConfig):
         self.resnet_fc_value_layers = [32]  # Define the hidden layers in the value head of the prediction network
         self.resnet_fc_policy_layers = [32]  # Define the hidden layers in the policy head of the prediction network
         self.downsample = True  # Downsample observations before representation network (See paper appendix Network Architecture)
+        
+        # Procgen-specific environment variables
+        self.num_levels_train = 500
+        self.num_levels_eval = 100
+        self.num_levels_per_actor = self.num_levels_train // self.num_actors
+        self.distribution_mode = "easy"  # Choose among "easy" and "hard"
 
     def visit_softmax_temperature_fn(self, trained_steps):
         if self.change_temperature:
@@ -96,8 +105,10 @@ class ProcgenConfig(BaseConfig):
         else:
             return 1.0
 
-    def set_game(self, env_name, save_video=False, save_path=None, video_callable=None):
+    def set_game(self, env_name):
         self.env_name = env_name
+        self.num_levels_per_env = self.num_levels_per_actor // self.p_mcts_num
+        
         # gray scale
         if self.gray_scale:
             self.image_channel = 1
@@ -135,29 +146,39 @@ class ProcgenConfig(BaseConfig):
             init_zero=self.init_zero,
             state_norm=self.state_norm)
 
-    def new_game(self, seed=None, save_video=False, save_path=None, video_callable=None, uid=None, test=False, final_test=False):
+    def new_game(self, seed=0, render_mode="rgb_array", record_video=False, save_path=None, recording_interval=None, test=False, final_test=False):
+        # Initialize base environment
+        # TODO: Differentiate between test/evaluation and training environment
+        start_level = seed*self.num_levels_per_env
+        env = gym.make(
+            self.env_name,
+            render_mode=render_mode,
+            start_level=start_level, 
+            num_levels=self.num_levels_per_env, 
+            distribution_mode=self.distribution_mode
+        )
+        
+        # Wrap in video recorder
+        if record_video:
+            from gym.wrappers.record_video import RecordVideo
+            name_prefix = "test" if final_test else "train"
+            interval = self.recording_interval if recording_interval is None else recording_interval
+            env = RecordVideo(env,
+                              video_folder=save_path,
+                              episode_trigger=lambda episode_id: episode_id % self.recording_interval == 0,
+                              name_prefix=name_prefix)    
+        
+        # Limit number of total episode steps
+        env = MaxAndSkipEnv(env, skip=self.frame_skip)
         if test:
             if final_test:
                 max_moves = 108000 // self.frame_skip
             else:
                 max_moves = self.test_max_moves
-            env = make_procgen(self.env_name, skip=self.frame_skip, max_episode_steps=max_moves)
+            env = TimeLimit(env, max_episode_steps=max_moves)
         else:
-            env = make_procgen(self.env_name, skip=self.frame_skip, max_episode_steps=self.max_moves)
+            env = TimeLimit(env, max_episode_steps=self.max_moves)
 
-        #env = WarpFrame(env, width=self.obs_shape[1], height=self.obs_shape[2], grayscale=self.gray_scale)
-
-        if seed is not None:
-            #env.seed(seed)
-            pass
-
-        if save_video:
-            from gym.wrappers.record_video import RecordVideo
-            name_prefix = "test" if final_test else "train"
-            env = RecordVideo(env,
-                              video_folder=save_path,
-                              episode_trigger=lambda episode_id: episode_id % self.recording_interval == 0,
-                              name_prefix=name_prefix)
         return ProcgenWrapper(env, discount=self.discount, cvt_string=self.cvt_string)
 
     def scalar_reward_loss(self, prediction, target):

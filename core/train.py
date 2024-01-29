@@ -387,7 +387,7 @@ def _train(model, target_model, replay_buffer, shared_storage, batch_storage, co
         if batch is None:
             time.sleep(0.3)
             continue
-        shared_storage.incr_counter.remote()
+        shared_storage.incr_training_step_counter.remote()
         lr = adjust_lr(config, optimizer, step_count)
 
         # update model for self-play

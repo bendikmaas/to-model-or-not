@@ -119,10 +119,16 @@ class DataWorker(object):
 
         start_training = False
         save_path = os.path.join(self.config.exp_path, "recordings")
+        
+        # Ensure that all environments across all actors
+        # are created with individual seeds
+        seeds = [(self.config.seed + i) * ((self.rank + 1)*num_parallel_envs) 
+                 for i in range(num_parallel_envs)]
         envs = [self.config.new_game(
-            seed=self.config.seed + self.rank * i,
-            save_video=(self.record_video and i == 0),
-            save_path=save_path
+            seed=seeds[i],
+            record_video=(self.record_video and i == 0),
+            save_path=save_path,
+            recording_interval=self.config.recording_interval
         )
             for i in range(num_parallel_envs)]
 
@@ -140,7 +146,7 @@ class DataWorker(object):
             while True:
                 
                 # Break self-play loop when training is finished
-                trained_steps = ray.get(self.storage.get_counter.remote())
+                trained_steps = ray.get(self.storage.get_training_step_counter.remote())
                 if trained_steps >= self.config.training_steps + self.config.last_steps:
                     print("Training finished. Sleeping.")
                     time.sleep(30)
@@ -189,7 +195,7 @@ class DataWorker(object):
                             start_training = ray.get(self.storage.get_start_signal.remote())
                         
                         # Return if training is finished
-                        trained_steps = ray.get(self.storage.get_counter.remote())
+                        trained_steps = ray.get(self.storage.get_training_step_counter.remote())
                         if trained_steps >= self.config.training_steps + self.config.last_steps:
                             print("Training finished. Sleeping.")
                             time.sleep(30)

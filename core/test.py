@@ -19,17 +19,22 @@ def _test(config, shared_storage):
     best_test_score = float('-inf')
     episodes = 0
     while True:
-        counter = ray.get(shared_storage.get_counter.remote())
+        counter = ray.get(shared_storage.get_training_step_counter.remote())
+        
+        # Training finished
         if counter >= config.training_steps + config.last_steps:
             time.sleep(30)
             break
+        
+        # Run test
         if counter >= config.test_interval * episodes:
             episodes += 1
             test_model.set_weights(ray.get(shared_storage.get_weights.remote()))
             test_model.eval()
 
             test_score, _ = test(config, test_model, counter,
-                                 config.test_episodes, config.device, False, save_video=config.save_video)
+                                 config.test_episodes, config.device, False, 
+                                 record_video=config.record_video, recording_interval=config.recording_interval)
             mean_score = test_score.mean()
             std_score = test_score.std()
             print('Start evaluation at step {}.'.format(counter))
@@ -50,24 +55,29 @@ def _test(config, shared_storage):
         time.sleep(30)
 
 
-def test(config, model, counter, test_episodes, device, render, save_video=False, final_test=False, use_pb=False):
-    """evaluation test
+def test(config, model, counter, test_episodes, device, render, 
+         record_video=False, recording_interval=None, final_test=False, evaluate_transfer=False, use_pb=False):
+    """Evaluation test that runs every config.test_interval-th step.
     Parameters
     ----------
     model: any
-        models for evaluation
+        model to evaluate
     counter: int
-        current training step counter
+        current training step
     test_episodes: int
         number of test episodes
     device: str
         'cuda' or 'cpu'
     render: bool
         True -> render the image during evaluation
-    save_video: bool
-        True -> save the videos during evaluation
+    record_video: bool
+        True -> record the episodes during evaluation
+    recording_interval: int
+        the interval at which to record episodes
     final_test: bool
         True -> this test is the final test, and the max moves would be 108k/skip
+    evaluate_transfer: bool
+        True -> create environments different from the ones seen during training
     use_pb: bool
         True -> use tqdm bars
     """
@@ -80,8 +90,13 @@ def test(config, model, counter, test_episodes, device, render, save_video=False
 
     with torch.no_grad():
         # new games
-        envs = [config.new_game(seed=i, save_video=save_video, save_path=save_path, test=True, final_test=final_test,
-                              video_callable=lambda episode_id: True, uid=i) for i in range(test_episodes)]
+        envs = [config.new_game(seed=i, 
+                                record_video=record_video, 
+                                save_path=save_path, 
+                                recording_interval=recording_interval, 
+                                test=True, 
+                                final_test=final_test
+                            ) for i in range(test_episodes)]
         # initializations
         init_obses = [env.reset() for env in envs]
         dones = np.array([False for _ in range(test_episodes)])

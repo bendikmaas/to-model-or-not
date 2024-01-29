@@ -103,7 +103,8 @@ if __name__ == '__main__':
             model.set_weights(weights)
             total_steps = game_config.training_steps + game_config.last_steps
             test_score, test_path = test(game_config, model.to(device), total_steps, game_config.test_episodes,
-                                         device, render=True, save_video=args.save_video, final_test=True, use_pb=True)
+                                         device, render=True, record_video=args.save_video, recording_interval=game_config.recording_interval, 
+                                         final_test=True, use_pb=True)
             mean_score = test_score.mean()
             std_score = test_score.std()
 
@@ -130,7 +131,7 @@ if __name__ == '__main__':
             model = game_config.get_uniform_network().to(device)
             model.load_state_dict(torch.load(model_path, map_location=torch.device(device)))
             test_score, test_path = test(game_config, model, 0, args.test_episodes, device=device, render=args.render,
-                                         save_video=args.save_video, final_test=True, use_pb=True)
+                                         record_video=args.save_video, recording_interval=game_config.recording_interval, final_test=True, use_pb=True)
             mean_score = test_score.mean()
             std_score = test_score.std()
             logging.getLogger('test').info('Test Mean Score: {} (max: {}, min: {})'.format(mean_score, test_score.max(), test_score.min()))

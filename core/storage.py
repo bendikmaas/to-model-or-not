@@ -44,7 +44,7 @@ class SharedStorage(object):
         self.model = model
         self.target_model = target_model
         
-        self.step_counter = 0
+        self.training_step_counter = 0
         self.test_counter = 0
         self.ori_reward_log = []
         self.reward_log = []
@@ -77,11 +77,11 @@ class SharedStorage(object):
     def set_target_weights(self, weights):
         return self.target_model.set_weights(weights)
 
-    def incr_counter(self):
-        self.step_counter += 1
+    def incr_training_step_counter(self):
+        self.training_step_counter += 1
 
-    def get_counter(self):
-        return self.step_counter
+    def get_training_step_counter(self):
+        return self.training_step_counter
 
     def set_data_worker_logs(self, eps_len, eps_len_max, eps_ori_reward, eps_reward, eps_norm_return,
                              eps_reward_max, temperature, visit_entropy, priority_self_play, distributions):

@@ -1,3 +1,4 @@
+import gym
 import torch
 
 from core.config import BaseConfig
@@ -6,6 +7,9 @@ from core.dataset import Transforms
 from .env_wrapper import AtariWrapper
 from .model import EfficientZeroNet
 
+return_bounds = {
+    "ALE/Breakout": (2., 300.)
+}
 
 class AtariConfig(BaseConfig):
     def __init__(self):
@@ -94,7 +98,7 @@ class AtariConfig(BaseConfig):
         else:
             return 1.0
 
-    def set_game(self, env_name, save_video=False, save_path=None, video_callable=None):
+    def set_game(self, env_name):
         self.env_name = env_name
         # gray scale
         if self.gray_scale:
@@ -104,6 +108,7 @@ class AtariConfig(BaseConfig):
 
         game = self.new_game()
         self.action_space_size = game.action_space_size
+        self.min_return, self.max_return = return_bounds[env_name.split("-")[0]] 
 
     def get_uniform_network(self):
         return EfficientZeroNet(
@@ -131,7 +136,20 @@ class AtariConfig(BaseConfig):
             init_zero=self.init_zero,
             state_norm=self.state_norm)
 
-    def new_game(self, seed=None, save_video=False, save_path=None, video_callable=None, uid=None, test=False, final_test=False):
+    def new_game(self, seed=None, record_video=False, save_path=None, recording_interval=0, test=False, final_test=False):
+        # Base environment
+        
+        
+        # Wrap in video recorder
+        if record_video:
+            from gym.wrappers.record_video import RecordVideo
+            name_prefix = "test" if final_test else "train"
+            interval = self.recording_interval if recording_interval is None else recording_interval
+            env = RecordVideo(env,
+                              video_folder=save_path,
+                              episode_trigger=lambda episode_id: episode_id % self.recording_interval == 0,
+                              name_prefix=name_prefix)   
+        
         if test:
             if final_test:
                 max_moves = 108000 // self.frame_skip
@@ -148,13 +166,6 @@ class AtariConfig(BaseConfig):
         if seed is not None:
             env.seed(seed)
 
-        if save_video:
-            from gym.wrappers.record_video import RecordVideo
-            name_prefix = "test" if final_test else "train"
-            env = RecordVideo(env,
-                              video_folder=save_path,
-                              episode_trigger=lambda episode_id: episode_id % self.recording_interval == 0,
-                              name_prefix=name_prefix)
         return AtariWrapper(env, discount=self.discount, cvt_string=self.cvt_string)
 
     def scalar_reward_loss(self, prediction, target):

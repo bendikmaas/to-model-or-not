@@ -58,17 +58,19 @@ class TimeLimit(gym.Wrapper):
 
 class NoopResetEnv(gym.Wrapper):
     def __init__(self, env, noop_max=30):
-        """Sample initial states by taking random number of no-ops on reset.
-        No-op is assumed to be action 0.
+        """Induce some variation into start positions taking random number of no-ops on reset.
+        
+        Note:
+            No-op is assumed to be action 0.
         """
         gym.Wrapper.__init__(self, env)
         self.noop_max = noop_max
         self.override_num_noops = None
         self.noop_action = 0
-        #assert env.unwrapped.get_action_meanings()[0] == 'NOOP'
+        assert env.unwrapped.get_action_meanings()[0] == 'NOOP'
 
     def reset(self, **kwargs):
-        """ Do no-op action for a number of steps in [1, noop_max]."""
+        """Do no-op action for a number of steps in [1, noop_max]."""
         self.env.reset(**kwargs)
         if self.override_num_noops is not None:
             noops = self.override_num_noops
@@ -82,14 +84,14 @@ class NoopResetEnv(gym.Wrapper):
                 obs = self.env.reset(**kwargs)
         return obs
 
-    def step(self, ac):
-        return self.env.step(ac)
+    def step(self, action):
+        return self.env.step(action)
 
 
 class EpisodicLifeEnv(gym.Wrapper):
     def __init__(self, env):
         """Make end-of-life == end-of-episode, but only reset on true game over.
-        Done by DeepMind for the DQN and co. since it helps value estimation.
+        Done by DeepMind for the DQN since it helps value estimation.
         """
         gym.Wrapper.__init__(self, env)
         self.lives = 0
@@ -125,16 +127,16 @@ class EpisodicLifeEnv(gym.Wrapper):
 
 class MaxAndSkipEnv(gym.Wrapper):
     def __init__(self, env, skip=4):
-        """Return only every `skip`-th frame"""
+        """Return only every `skip`-th frame and 
+        max-pool over the last two frames to percieve Atari's flickering assets."""
         gym.Wrapper.__init__(self, env)
-        # most recent raw observations (for max pooling across time steps)
         self._obs_buffer = np.zeros((2,)+env.observation_space.shape, dtype=np.uint8)
         self._skip       = skip
         self.max_frame = np.zeros(env.observation_space.shape, dtype=np.uint8)
 
     def step(self, action):
         """Repeat action '_skip' times, sum up reward, and compute the 
-            max over the two last observations."""
+            max pixel values over the two last observations."""
         total_reward = 0.0
         done = None
         for i in range(self._skip):
@@ -144,8 +146,6 @@ class MaxAndSkipEnv(gym.Wrapper):
             total_reward += reward
             if done:
                 break
-        # Note that the observation on the done=True frame
-        # doesn't matter
         self.max_frame = self._obs_buffer.max(axis=0)
 
         return self.max_frame, total_reward, done, info
@@ -219,45 +219,17 @@ class WarpFrame(gym.ObservationWrapper):
         return obs
 
 
-def make_atari(env_id, skip=4, max_episode_steps=None):
+def make_atari(env, skip=4, max_episode_steps=None):
     """Make Atari games
     Parameters
     ----------
-    env_id: str
-        name of environment
+    env: AtariEnv
+        base Atari environment
     skip: int
         frame skip
     max_episode_steps: int
         max moves for an episode
     """
-    env = gym.make(env_id, frameskip=1)
-    env = NoopResetEnv(env, noop_max=30)
-    env = MaxAndSkipEnv(env, skip=skip)
-    if max_episode_steps is not None:
-        env = TimeLimit(env, max_episode_steps=max_episode_steps)
-    return env
-
-def make_procgen(env_id, 
-                 skip=4, 
-                 max_episode_steps=None, 
-                 start_level=0,
-                 num_levels=500,
-                 distribution_mode="easy"):
-    """Make Procgen games
-    Parameters
-    ----------
-    env_id: str
-        name of the environment
-    skip: int
-        number of frames to skip between each action
-    max_episode_steps: int
-        max steps for an episode
-    """
-    env = gym.make(env_id,
-                   render_mode="rgb_array",
-                   start_level=start_level, 
-                   num_levels=num_levels, 
-                   distribution_mode=distribution_mode)
     env = NoopResetEnv(env, noop_max=30)
     env = MaxAndSkipEnv(env, skip=skip)
     if max_episode_steps is not None:
