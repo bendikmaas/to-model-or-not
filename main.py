@@ -27,7 +27,7 @@ if __name__ == '__main__':
                              '(gradients, target value, reward distribution, etc.) (default: %(default)s)')
     parser.add_argument('--render', action='store_true',
                         help='Renders the environment (default: %(default)s)')
-    parser.add_argument('--save_video', action='store_true', help='save video in test.')
+    parser.add_argument('--record_video', action='store_true', help='save video in test.')
     parser.add_argument('--force', action='store_true',
                         help='Overrides past results (default: %(default)s)')
     parser.add_argument('--cpu_actor', type=int, default=14, help='batch cpu actor')
@@ -103,8 +103,8 @@ if __name__ == '__main__':
             model.set_weights(weights)
             total_steps = game_config.training_steps + game_config.last_steps
             test_score, test_path = test(game_config, model.to(device), total_steps, game_config.test_episodes,
-                                         device, render=True, record_video=args.save_video, recording_interval=game_config.recording_interval, 
-                                         final_test=True, use_pb=True)
+                                         device, render=True, record_video=args.record_video, recording_interval=game_config.recording_interval, 
+                                         evaluate_transfer=True, final_test=True, use_pb=True)
             mean_score = test_score.mean()
             std_score = test_score.std()
 
@@ -118,7 +118,7 @@ if __name__ == '__main__':
             test_msg = '#{:<10} Test Mean Score of {}: {:<10} (max: {:<10}, min:{:<10}, std: {:<10})' \
                        ''.format(total_steps, game_config.env_name, mean_score, test_score.max(), test_score.min(), std_score)
             logging.getLogger('train_test').info(test_msg)
-            if args.save_video:
+            if args.record_video:
                 logging.getLogger('train_test').info('Saving video in path: {}'.format(test_path))
         elif args.opr == 'test':
             assert args.load_model
@@ -131,12 +131,13 @@ if __name__ == '__main__':
             model = game_config.get_uniform_network().to(device)
             model.load_state_dict(torch.load(model_path, map_location=torch.device(device)))
             test_score, test_path = test(game_config, model, 0, args.test_episodes, device=device, render=args.render,
-                                         record_video=args.save_video, recording_interval=game_config.recording_interval, final_test=True, use_pb=True)
+                                         record_video=args.record_video, recording_interval=game_config.recording_interval, evaluate_transfer=True,
+                                         final_test=True, use_pb=True)
             mean_score = test_score.mean()
             std_score = test_score.std()
             logging.getLogger('test').info('Test Mean Score: {} (max: {}, min: {})'.format(mean_score, test_score.max(), test_score.min()))
             logging.getLogger('test').info('Test Std Score: {}'.format(std_score))
-            if args.save_video:
+            if args.record_video:
                 logging.getLogger('test').info('Saving video in path: {}'.format(test_path))
         else:
             raise Exception('Please select a valid operation(--opr) to be performed')

@@ -122,7 +122,7 @@ class DataWorker(object):
         
         # Ensure that all environments across all actors
         # are created with individual seeds
-        seeds = [(self.config.seed + i) * ((self.rank + 1)*num_parallel_envs) 
+        seeds = [self.config.seed + (self.config.num_levels_per_env * i) + self.rank * self.config.num_levels_per_actor 
                  for i in range(num_parallel_envs)]
         envs = [self.config.new_game(
             seed=seeds[i],

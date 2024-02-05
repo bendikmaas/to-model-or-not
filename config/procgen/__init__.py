@@ -15,10 +15,10 @@ class ProcgenConfig(BaseConfig):
     def __init__(self):
         super(ProcgenConfig, self).__init__(
             last_steps=20000,
-            test_interval=10000,
+            test_interval=100,
             log_interval=100,
             vis_interval=100,
-            test_episodes=32,
+            test_episodes=16,
             checkpoint_interval=100,
             target_model_interval=200,
             save_ckpt_interval=5000,
@@ -90,7 +90,7 @@ class ProcgenConfig(BaseConfig):
         
         # Procgen-specific environment variables
         self.num_levels_train = 500
-        self.num_levels_eval = 100
+        self.num_levels_eval = 128
         self.num_levels_per_actor = self.num_levels_train // self.num_actors
         self.distribution_mode = "easy"  # Choose among "easy" and "hard"
 
@@ -146,26 +146,43 @@ class ProcgenConfig(BaseConfig):
             init_zero=self.init_zero,
             state_norm=self.state_norm)
 
-    def new_game(self, seed=0, render_mode="rgb_array", record_video=False, save_path=None, recording_interval=None, test=False, final_test=False):
+    def new_game(self, seed=0, render_mode="rgb_array", record_video=False, save_path=None, recording_interval=None, test=False, final_test=False, transfer=False):
         # Initialize base environment
-        # TODO: Differentiate between test/evaluation and training environment
-        start_level = seed*self.num_levels_per_env
-        env = gym.make(
-            self.env_name,
-            render_mode=render_mode,
-            start_level=start_level, 
-            num_levels=self.num_levels_per_env, 
-            distribution_mode=self.distribution_mode
-        )
+        if transfer:
+            env = gym.make(
+                self.env_name,
+                render_mode=render_mode,
+                start_level=self.seed, 
+                num_levels=self.num_levels_eval // self.test_episodes, 
+                distribution_mode=self.distribution_mode
+            )
+        else:
+            start_level = seed*self.num_levels_per_env
+            env = gym.make(
+                self.env_name,
+                render_mode=render_mode,
+                start_level=seed, 
+                num_levels=self.num_levels_per_env, 
+                distribution_mode=self.distribution_mode
+            )
         
         # Wrap in video recorder
         if record_video:
             from gym.wrappers.record_video import RecordVideo
-            name_prefix = "test" if final_test else "train"
-            interval = self.recording_interval if recording_interval is None else recording_interval
+            if final_test:
+                name_prefix = "final_test"
+                interval = 1
+            elif test:
+                name_prefix = "test"
+                interval = 1
+            else:
+                name_prefix = "train"
+                interval = self.recording_interval
+            if transfer:
+                name_prefix += "-transfer"
             env = RecordVideo(env,
                               video_folder=save_path,
-                              episode_trigger=lambda episode_id: episode_id % self.recording_interval == 0,
+                              episode_trigger=lambda episode_id: episode_id % interval == 0,
                               name_prefix=name_prefix)    
         
         # Limit number of total episode steps

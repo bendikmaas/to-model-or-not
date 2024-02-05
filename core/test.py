@@ -95,7 +95,8 @@ def test(config, model, counter, test_episodes, device, render,
                                 save_path=save_path, 
                                 recording_interval=recording_interval, 
                                 test=True, 
-                                final_test=final_test
+                                final_test=final_test,
+                                transfer=evaluate_transfer
                             ) for i in range(test_episodes)]
         # initializations
         init_obses = [env.reset() for env in envs]
