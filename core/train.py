@@ -13,6 +13,7 @@ from torch.cuda.amp import autocast as autocast
 from torch.cuda.amp import GradScaler as GradScaler
 from core.log import _log
 from core.test import _test
+from core.test_worker import TestWorker
 from core.replay_buffer import ReplayBuffer
 from core.storage import SharedStorage, QueueStorage
 from core.selfplay_worker import DataWorker
@@ -409,6 +410,9 @@ def _train(model, target_model, replay_buffer, shared_storage, batch_storage, co
             scaler = log_data[3]
         else:
             log_data = update_weights(model, batch, optimizer, replay_buffer, config, scaler, vis_result)
+            
+        #if step_count % config.test_interval:
+        #    _test(config, shared_storage, step_count)
 
         if step_count % config.log_interval == 0:
             _log(config, step_count, log_data[0:3], model, replay_buffer, lr, shared_storage, summary_writer, vis_result)
@@ -479,8 +483,10 @@ def train(config, summary_writer, model_path=None):
         rank, replay_buffer, storage, config, record_video=rank == 0) for rank in range(0, config.num_actors)]
     workers += [worker.run.remote() for worker in data_workers]
     
-    # test workers
-    workers += [_test.remote(config, storage)]
+    # test worker
+    #workers += [_test.remote(config, storage)]
+    test_workers = [TestWorker.remote(config, storage, evaluate_transfer=True, record_video=True)]
+    workers += [test_worker._test.remote() for test_worker in test_workers]
 
     # training loop
     final_weights = _train(model, target_model, replay_buffer, storage, batch_storage, config, summary_writer)
