@@ -16,7 +16,7 @@ if __name__ == '__main__':
     parser.add_argument('--env', required=True, help='Name of the environment')
     parser.add_argument('--result_dir', default=os.path.join(os.getcwd(), 'results'),
                         help="Directory Path to store results (default: %(default)s)")
-    parser.add_argument('--case', required=True, choices=['atari', 'procgen'],
+    parser.add_argument('--case', required=True, choices=['atari', 'procgen', 'minigrid'],
                         help="It's used for switching between different domains(default: %(default)s)")
     parser.add_argument('--opr', required=True, choices=['train', 'test'])
     parser.add_argument('--amp_type', required=True, choices=['torch_amp', 'none'],
