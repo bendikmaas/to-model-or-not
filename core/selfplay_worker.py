@@ -120,10 +120,6 @@ class DataWorker(object):
         start_training = False
         save_path = os.path.join(self.config.exp_path, "recordings")
 
-        # Ensure that all environments across all actors
-        # are created with individual seeds
-        seeds = [self.config.seed + (self.config.num_levels_per_env * i) + self.rank * self.config.num_levels_per_actor
-                 for i in range(num_parallel_envs)]
         envs = [self.config.new_game(
             seed=self.config.seed,
             env_idx=i,
