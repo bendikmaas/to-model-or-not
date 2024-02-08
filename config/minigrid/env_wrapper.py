@@ -2,10 +2,16 @@ import numpy as np
 from core.game import Game
 from core.utils import arr_to_str
 
+import random
+
 import gymnasium as gym
 from gymnasium import spaces
+from gymnasium.utils.seeding import np_random
 
 from minigrid.core.constants import OBJECT_TO_IDX, IDX_TO_OBJECT
+from minigrid.core.grid import Grid
+from minigrid.core.mission import MissionSpace
+from minigrid.core.world_object import Goal, Lava
 from minigrid.envs import LavaGapEnv
 from minigrid.wrappers import ObservationWrapper, ImgObsWrapper
 
@@ -103,3 +109,56 @@ class OneHotObjEncodingWrapper(ObservationWrapper):
                     out[i, j, self.objects.index(obj) + 1] = 1
 
         return {**obs, "image": out}
+
+
+class DeterministicLavaGap(LavaGapEnv):
+    def __init__(
+        self, seed, size, max_steps, num_train_levels, **kwargs
+    ):
+        super().__init__(size, max_steps=max_steps, **kwargs)
+
+        # Enumerate and store all possible gap positions
+        self.legal_gap_positions = []
+        for row in range(1, size - 1):
+            for col in range(2, size - 2):
+                self.legal_gap_positions.append((col, row))
+
+        self.num_train_levels = min(
+            num_train_levels, len(self.legal_gap_positions))
+
+        rng = random.Random(seed)
+        self.gap_positions = rng.sample(self.legal_gap_positions,
+                                        self.num_train_levels)
+        print(f"Selected gap positions: {self.gap_positions}")
+
+    def _gen_grid(self, width, height):
+        assert width >= 5 and height >= 5
+
+        # Create an empty grid
+        self.grid = Grid(width, height)
+
+        # Generate the surrounding walls
+        self.grid.wall_rect(0, 0, width, height)
+
+        # Place the agent in the top-left corner
+        self.agent_pos = np.array((1, 1))
+        self.agent_dir = 0
+
+        # Place a goal square in the bottom-right corner
+        self.goal_pos = np.array((width - 2, height - 2))
+        self.put_obj(Goal(), *self.goal_pos)
+
+        # Generate and store random gap positionn
+        self.gap_pos = np.array(self._rand_elem(self.gap_positions))
+
+        # Place the obstacle wall
+        self.grid.vert_wall(self.gap_pos[0], 1, height - 2, self.obstacle_type)
+
+        # Put a hole in the wall
+        self.grid.set(*self.gap_pos, None)
+
+        self.mission = (
+            "avoid the lava and get to the green goal square"
+            if self.obstacle_type == Lava
+            else "find the opening and get to the green goal square"
+        )

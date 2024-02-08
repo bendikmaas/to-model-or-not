@@ -4,7 +4,7 @@ import torch
 
 from core.config import BaseConfig
 from .model import EfficientZeroNet
-from .env_wrapper import OneHotObjEncodingWrapper, MinigridWrapper
+from .env_wrapper import OneHotObjEncodingWrapper, MinigridWrapper, DeterministicLavaGap
 
 games = {
     "MiniGrid-LavaGapS5-v0": {"return_bounds": (0., 0.97),
@@ -110,6 +110,7 @@ class MinigridConfig(BaseConfig):
 
         # Minigrid-specific parameters
         self.agent_view_size = 7
+        self.num_train_levels = 5
 
     def visit_softmax_temperature_fn(self, trained_steps):
         if self.change_temperature:
@@ -162,15 +163,22 @@ class MinigridConfig(BaseConfig):
             init_zero=self.init_zero,
             state_norm=self.state_norm)
 
-    def new_game(self, seed=None, env_idx=None, actor_rank=None, render_mode="rgb_array",
-                 record_video=False, save_path=None, recording_interval=1, test=False, final_test=False):
+    def new_game(self, seed=None, env_idx=0, actor_rank=0, render_mode="rgb_array",
+                 record_video=False, save_path=None, recording_interval=None, test=False, final_test=False):
+        if seed is None:
+            seed = self.seed
+
         # Base environment
-        env = gym.make(self.env_name,
-                       render_mode=render_mode,
-                       size=self.grid_size,
-                       agent_view_size=self.agent_view_size,
-                       max_steps=self.max_moves
-                       )
+        if test or final_test:
+            env = gym.make(self.env_name,
+                           render_mode=render_mode,
+                           size=self.grid_size,
+                           agent_view_size=self.agent_view_size,
+                           max_steps=self.max_moves
+                           )
+        else:
+            env = DeterministicLavaGap(seed, self.grid_size, self.max_moves, self.num_train_levels,
+                                       agent_view_size=self.agent_view_size, render_mode=render_mode)
 
         # Wrap in video recorder
         if record_video:
@@ -179,15 +187,11 @@ class MinigridConfig(BaseConfig):
             interval = self.recording_interval if recording_interval is None else recording_interval
             env = RecordVideo(env,
                               video_folder=save_path,
-                              episode_trigger=lambda episode_id: episode_id % self.recording_interval == 0,
+                              episode_trigger=lambda episode_id: episode_id % interval == 0,
                               name_prefix=name_prefix)
 
         # Wrap in one-hot-encoding-wrapper
         env = OneHotObjEncodingWrapper(env, objects=self.encoded_objects)
-
-        # TODO: Make LavaGap seedable
-        if seed is not None:
-            env.seed(seed)
 
         return MinigridWrapper(env, discount=self.discount, cvt_string=self.cvt_string)
 
@@ -204,3 +208,6 @@ class MinigridConfig(BaseConfig):
 
     def transform(self, images):
         return self.transforms.transform(images)
+
+
+game_config = MinigridConfig()
