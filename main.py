@@ -78,6 +78,8 @@ if __name__ == '__main__':
         from config.atari import game_config
     elif args.case == 'procgen':
         from config.procgen import game_config
+    elif args.case == 'minigrid':
+        from config.minigrid import game_config
     else:
         raise Exception('Invalid --case option')
 
