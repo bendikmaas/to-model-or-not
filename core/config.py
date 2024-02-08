@@ -298,7 +298,8 @@ class BaseConfig(object):
     def set_game(self, env_name):
         raise NotImplementedError
 
-    def new_game(self, seed=None, record_video=False, save_path=None, recording_interval=None, test=False) -> Game:
+    def new_game(self, seed=None, env_idx=None, actor_rank=None, render_mode="rgb_array",
+                 record_video=False, save_path=None, recording_interval=None, test=False, final_test=False) -> Game:
         """ returns a new instance of the game"""
         raise NotImplementedError
 

@@ -22,6 +22,6 @@ python main.py --env "procgen-chaser-v0" --case procgen --opr train \
   --use_max_priority \
   --amp_type 'torch_amp' \
   --info 'EfficientZero-V3' \
-  --save_video \
+  --record_video \
   --auto_resume \
   --object_store_mem=1000000000

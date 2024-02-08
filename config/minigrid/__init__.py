@@ -162,7 +162,8 @@ class MinigridConfig(BaseConfig):
             init_zero=self.init_zero,
             state_norm=self.state_norm)
 
-    def new_game(self, seed=None, render_mode="rgb_array", record_video=False, save_path=None, recording_interval=1, test=False, final_test=False):
+    def new_game(self, seed=None, env_idx=None, actor_rank=None, render_mode="rgb_array",
+                 record_video=False, save_path=None, recording_interval=1, test=False, final_test=False):
         # Base environment
         env = gym.make(self.env_name,
                        render_mode=render_mode,

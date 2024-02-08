@@ -34,7 +34,6 @@ class ProcgenConfig(BaseConfig):
             td_steps=5,
             num_actors=2,
             # network initialization/ & normalization
-            episode_life=True,
             init_zero=True,
             clip_reward=True,
             # storage efficient
@@ -89,8 +88,7 @@ class ProcgenConfig(BaseConfig):
         self.downsample = True  # Downsample observations before representation network (See paper appendix Network Architecture)
         
         # Procgen-specific environment variables
-        self.num_levels_train = 500
-        self.num_levels_eval = 128
+        self.num_levels_train = 4
         self.num_levels_per_actor = self.num_levels_train // self.num_actors
         self.distribution_mode = "easy"  # Choose among "easy" and "hard"
 
@@ -146,18 +144,26 @@ class ProcgenConfig(BaseConfig):
             init_zero=self.init_zero,
             state_norm=self.state_norm)
 
-    def new_game(self, seed=0, render_mode="rgb_array", record_video=False, save_path=None, recording_interval=None, test=False, final_test=False, transfer=False):
+    def new_game(self, seed=None, env_idx=0, actor_rank=0, render_mode="rgb_array",
+                 record_video=False, save_path=None, recording_interval=None, test=False, final_test=False):
+        if seed is None:
+            seed = self.seed
+
         # Initialize base environment
-        if transfer:
+        if test or final_test:
+            # Test on all levels w/ num_levels=0
             env = gym.make(
                 self.env_name,
                 render_mode=render_mode,
-                start_level=self.seed, 
-                num_levels=self.num_levels_eval // self.test_episodes, 
+                start_level=seed + env_idx * self.num_levels_per_env,
+                num_levels=0,
                 distribution_mode=self.distribution_mode
             )
         else:
-            start_level = seed*self.num_levels_per_env
+            # Ensure that all environments across all actors
+            # are created with individual seeds
+            seed = seed + (self.num_levels_per_env * env_idx) + \
+                actor_rank * self.num_levels_per_actor
             env = gym.make(
                 self.env_name,
                 render_mode=render_mode,
@@ -177,9 +183,7 @@ class ProcgenConfig(BaseConfig):
                 interval = 1
             else:
                 name_prefix = "train"
-                interval = self.recording_interval
-            if transfer:
-                name_prefix += "-transfer"
+                interval = self.recording_interval if recording_interval is None else recording_interval
             env = RecordVideo(env,
                               video_folder=save_path,
                               episode_trigger=lambda episode_id: episode_id % interval == 0,

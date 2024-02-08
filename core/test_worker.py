@@ -17,14 +17,13 @@ test_logger = logging.getLogger(__name__)
 
 @ray.remote(num_gpus=0.25)
 class TestWorker(object):
-    def __init__(self, config, shared_storage, evaluate_transfer, record_video):
+    def __init__(self, config, shared_storage, record_video):
         self.config = config
         self.shared_storage = shared_storage
         self.best_mean_return = float('-inf')
         self.best_normalized_return = float('-inf')
         self.test_runs = 0
         self.test_model = self.config.get_uniform_network()
-        self.evaluate_transfer = evaluate_transfer
         self.record_video = record_video
         
     def _test(self):
@@ -99,18 +98,14 @@ class TestWorker(object):
             pb = tqdm(np.arange(self.config.max_moves), leave=True)
 
         with torch.no_grad():
-            if self.evaluate_transfer:
-              # Seed envs to ensure that all seeds are different from the ones used by DataWorkers
-              seeds = [self.config.seed + self.num_levels + (i*num_levels_per_env) for i in range(test_episodes)]
-            else:
-              seeds = [(self.config.seed + i) for i in range(test_episodes)]
-            envs = [self.config.new_game(seed=seeds[i], 
-                                    record_video=(self.record_video and i == 0), 
-                                    save_path=save_path, 
-                                    recording_interval=recording_interval, 
-                                    test=True, 
-                                    final_test=final_test,
-                                    transfer=self.evaluate_transfer
+            envs = [self.config.new_game(seed=self.config.seed,
+                                         env_idx=i,
+                                         record_video=(
+                                             self.record_video and i == 0),
+                                         save_path=save_path,
+                                         recording_interval=recording_interval,
+                                         test=True,
+                                         final_test=final_test,
                                 ) for i in range(test_episodes)]
             
             # Initialize environments and trajectories
