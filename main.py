@@ -16,7 +16,7 @@ if __name__ == '__main__':
     parser.add_argument('--env', required=True, help='Name of the environment')
     parser.add_argument('--result_dir', default=os.path.join(os.getcwd(), 'results'),
                         help="Directory Path to store results (default: %(default)s)")
-    parser.add_argument('--case', required=True, choices=['atari', 'procgen'],
+    parser.add_argument('--case', required=True, choices=['atari', 'procgen', 'minigrid'],
                         help="It's used for switching between different domains(default: %(default)s)")
     parser.add_argument('--opr', required=True, choices=['train', 'test'])
     parser.add_argument('--amp_type', required=True, choices=['torch_amp', 'none'],
@@ -104,7 +104,7 @@ if __name__ == '__main__':
             total_steps = game_config.training_steps + game_config.last_steps
             test_score, test_path = test(game_config, model.to(device), total_steps, game_config.test_episodes,
                                          device, render=True, record_video=args.record_video, recording_interval=game_config.recording_interval, 
-                                         evaluate_transfer=True, final_test=True, use_pb=True)
+                                         final_test=True, use_pb=True)
             mean_score = test_score.mean()
             std_score = test_score.std()
 
@@ -131,7 +131,7 @@ if __name__ == '__main__':
             model = game_config.get_uniform_network().to(device)
             model.load_state_dict(torch.load(model_path, map_location=torch.device(device)))
             test_score, test_path = test(game_config, model, 0, args.test_episodes, device=device, render=args.render,
-                                         record_video=args.record_video, recording_interval=game_config.recording_interval, evaluate_transfer=True,
+                                         record_video=args.record_video, recording_interval=game_config.recording_interval,
                                          final_test=True, use_pb=True)
             mean_score = test_score.mean()
             std_score = test_score.std()

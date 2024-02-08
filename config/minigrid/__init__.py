@@ -1,28 +1,49 @@
-import gym
-import procgen
+import gymnasium as gym
+from minigrid.wrappers import ImgObsWrapper
 import torch
 
 from core.config import BaseConfig
-from core.utils import MaxAndSkipEnv, TimeLimit
-from core.dataset import Transforms
-from .env_wrapper import ProcgenWrapper
 from .model import EfficientZeroNet
+from .env_wrapper import OneHotObjEncodingWrapper, MinigridWrapper, DeterministicLavaGap
 
-return_bounds = {"coinrun": (5.,10.),
-                 "chaser": (.5, 14.2)}
+# TODO: Fix accurate return bounds
+games = {
+    "MiniGrid-LavaGapS5-v0": {"return_bounds": (0., 0.97),
+                              "grid_size": 5,
+                              "encoded_objects": ["unseen", "wall",
+                                                  "empty", "goal", "lava", "agent"]
+                              },
+    "MiniGrid-LavaGapS6-v0": {"return_bounds": (0., 0.97),
+                              "grid_size": 6,
+                              "encoded_objects": ["unseen", "wall",
+                                                  "empty", "goal", "lava", "agent"]
+                              },
+    "MiniGrid-LavaGapS7-v0": {"return_bounds": (0., 0.97),
+                              "grid_size": 7,
+                              "encoded_objects": ["unseen", "wall",
+                                                  "empty", "goal", "lava", "agent"]
+                              },
+    "MiniGrid-Empty-5x5-v0": {"return_bounds": (0., 0.97),
+                              "grid_size": 5,
+                              "encoded_objects": ["unseen", "wall",
+                                                  "empty", "goal", "agent"]
+                              }
+}
 
-class ProcgenConfig(BaseConfig):
+
+class MinigridConfig(BaseConfig):
     def __init__(self):
-        super(ProcgenConfig, self).__init__(
+        super(MinigridConfig, self).__init__(
+            training_steps=100000,
             last_steps=20000,
-            test_interval=100,
+            test_interval=2500,
             log_interval=100,
             vis_interval=100,
-            test_episodes=16,
+            test_episodes=32,
             checkpoint_interval=100,
             target_model_interval=200,
-            save_ckpt_interval=5000,
-            recording_interval=25,
+            save_ckpt_interval=10000,
+            recording_interval=5,
             max_moves=108000,
             test_max_moves=12000,
             history_length=400,
@@ -35,11 +56,7 @@ class ProcgenConfig(BaseConfig):
             num_actors=2,
             # network initialization/ & normalization
             init_zero=True,
-            clip_reward=True,
-            # storage efficient
-            image_based=True,
-            cvt_string=True,
-            training_steps=100000,
+            clip_reward=False,
             # lr scheduler
             lr_warm_up=0.01,
             lr_init=0.2,
@@ -51,8 +68,8 @@ class ProcgenConfig(BaseConfig):
             total_transitions=100 * 1000,
             transition_num=1,
             # frame skip & stack observation
-            frame_skip=2,
-            stacked_observations=4,
+            frame_skip=1,
+            stacked_observations=1,
             # coefficient
             reward_loss_coeff=1,
             value_loss_coeff=0.25,
@@ -70,11 +87,10 @@ class ProcgenConfig(BaseConfig):
         self.max_moves //= self.frame_skip
         self.test_max_moves //= self.frame_skip
 
-
         self.start_transitions = self.start_transitions * 1000 // self.frame_skip
         self.start_transitions = max(1, self.start_transitions)
 
-        self.bn_mt = 0.1  # BatchNorm momentum
+        self.bn_mt = 0.1
         self.blocks = 1  # Number of blocks in the ResNet
         self.channels = 64  # Number of channels in the ResNet
         if self.gray_scale:
@@ -82,15 +98,18 @@ class ProcgenConfig(BaseConfig):
         self.reduced_channels_reward = 16  # x36 Number of channels in reward head
         self.reduced_channels_value = 16  # x36 Number of channels in value head
         self.reduced_channels_policy = 16  # x36 Number of channels in policy head
-        self.resnet_fc_reward_layers = [32]  # Define the hidden layers in the reward head of the dynamic network
-        self.resnet_fc_value_layers = [32]  # Define the hidden layers in the value head of the prediction network
-        self.resnet_fc_policy_layers = [32]  # Define the hidden layers in the policy head of the prediction network
-        self.downsample = True  # Downsample observations before representation network (See paper appendix Network Architecture)
-        
-        # Procgen-specific environment variables
-        self.num_levels_train = 4
-        self.num_levels_per_actor = self.num_levels_train // self.num_actors
-        self.distribution_mode = "easy"  # Choose among "easy" and "hard"
+        # Define the hidden layers in the reward head of the dynamic network
+        self.resnet_fc_reward_layers = [32]
+        # Define the hidden layers in the value head of the prediction network
+        self.resnet_fc_value_layers = [32]
+        # Define the hidden layers in the policy head of the prediction network
+        self.resnet_fc_policy_layers = [32]
+        # Downsample observations before representation network (See paper appendix Network Architecture)
+        self.downsample = False
+
+        # Minigrid-specific parameters
+        self.agent_view_size = 7
+        self.num_train_levels = 5
 
     def visit_softmax_temperature_fn(self, trained_steps):
         if self.change_temperature:
@@ -104,19 +123,18 @@ class ProcgenConfig(BaseConfig):
             return 1.0
 
     def set_game(self, env_name):
+        assert env_name in list(games.keys())
         self.env_name = env_name
-        self.num_levels_per_env = self.num_levels_per_actor // self.p_mcts_num
-        
-        # gray scale
-        if self.gray_scale:
-            self.image_channel = 1
-        obs_shape = (self.image_channel, 64, 64)
-        self.obs_shape = (obs_shape[0] * self.stacked_observations, obs_shape[1], obs_shape[2])
+        self.grid_size = games[env_name]["grid_size"]
+        self.encoded_objects = games[env_name]["encoded_objects"]
+
+        obs_shape = (len(self.encoded_objects), self.grid_size, self.grid_size)
+        self.obs_shape = (
+            obs_shape[0] * self.stacked_observations, obs_shape[1], obs_shape[2])
 
         game = self.new_game()
-        self.action_space = game.action_space_size
         self.action_space_size = game.action_space_size
-        self.min_return, self.max_return = return_bounds[env_name.split("-")[1]] 
+        self.min_return, self.max_return = games[env_name]["return_bounds"]
 
     def get_uniform_network(self):
         return EfficientZeroNet(
@@ -149,58 +167,32 @@ class ProcgenConfig(BaseConfig):
         if seed is None:
             seed = self.seed
 
-        # Initialize base environment
+        # Base environment
         if test or final_test:
-            # Test on all levels w/ num_levels=0
-            env = gym.make(
-                self.env_name,
-                render_mode=render_mode,
-                start_level=seed + env_idx * self.num_levels_per_env,
-                num_levels=0,
-                distribution_mode=self.distribution_mode
-            )
+            env = gym.make(self.env_name,
+                           render_mode=render_mode,
+                           size=self.grid_size,
+                           agent_view_size=self.agent_view_size,
+                           max_steps=self.max_moves
+                           )
         else:
-            # Ensure that all environments across all actors
-            # are created with individual seeds
-            seed = seed + (self.num_levels_per_env * env_idx) + \
-                actor_rank * self.num_levels_per_actor
-            env = gym.make(
-                self.env_name,
-                render_mode=render_mode,
-                start_level=seed, 
-                num_levels=self.num_levels_per_env, 
-                distribution_mode=self.distribution_mode
-            )
-        
+            env = DeterministicLavaGap(seed, self.grid_size, self.max_moves, self.num_train_levels,
+                                       agent_view_size=self.agent_view_size, render_mode=render_mode)
+
         # Wrap in video recorder
         if record_video:
-            from gym.wrappers.record_video import RecordVideo
-            if final_test:
-                name_prefix = "final_test"
-                interval = 1
-            elif test:
-                name_prefix = "test"
-                interval = 1
-            else:
-                name_prefix = "train"
-                interval = self.recording_interval if recording_interval is None else recording_interval
+            from gymnasium.wrappers.record_video import RecordVideo
+            name_prefix = "test" if final_test else "train"
+            interval = self.recording_interval if recording_interval is None else recording_interval
             env = RecordVideo(env,
                               video_folder=save_path,
                               episode_trigger=lambda episode_id: episode_id % interval == 0,
-                              name_prefix=name_prefix)    
-        
-        # Limit number of total episode steps
-        env = MaxAndSkipEnv(env, skip=self.frame_skip)
-        if test:
-            if final_test:
-                max_moves = 108000 // self.frame_skip
-            else:
-                max_moves = self.test_max_moves
-            env = TimeLimit(env, max_episode_steps=max_moves)
-        else:
-            env = TimeLimit(env, max_episode_steps=self.max_moves)
+                              name_prefix=name_prefix)
 
-        return ProcgenWrapper(env, discount=self.discount, cvt_string=self.cvt_string)
+        # Wrap in one-hot-encoding-wrapper
+        env = OneHotObjEncodingWrapper(env, objects=self.encoded_objects)
+
+        return MinigridWrapper(env, discount=self.discount, cvt_string=self.cvt_string)
 
     def scalar_reward_loss(self, prediction, target):
         return -(torch.log_softmax(prediction, dim=1) * target).sum(1)
@@ -210,10 +202,11 @@ class ProcgenConfig(BaseConfig):
 
     def set_transforms(self):
         if self.use_augmentation:
-            self.transforms = Transforms(self.augmentation, image_shape=(self.obs_shape[1], self.obs_shape[2]))
+            self.transforms = Transforms(self.augmentation, image_shape=(
+                self.obs_shape[1], self.obs_shape[2]))
 
     def transform(self, images):
         return self.transforms.transform(images)
 
 
-game_config = ProcgenConfig()
+game_config = MinigridConfig()

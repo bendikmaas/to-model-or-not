@@ -485,7 +485,7 @@ def train(config, summary_writer, model_path=None):
     
     # test worker
     #workers += [_test.remote(config, storage)]
-    test_workers = [TestWorker.remote(config, storage, evaluate_transfer=True, record_video=True)]
+    test_workers = [TestWorker.remote(config, storage, record_video=True)]
     workers += [test_worker._test.remote() for test_worker in test_workers]
 
     # training loop

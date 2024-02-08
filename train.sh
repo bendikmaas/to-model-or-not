@@ -21,7 +21,7 @@ python main.py --env "procgen-coinrun-v0" --case procgen --opr train \
   --use_priority \
   --use_max_priority \
   --amp_type 'torch_amp' \
-  --info 'MuZero-V0' \
+  --info 'EfficientZero-V3' \
   --record_video \
   --auto_resume \
   --object_store_mem=1000000000

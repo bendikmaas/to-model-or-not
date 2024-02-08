@@ -56,7 +56,7 @@ def _test(config, shared_storage):
 
 
 def test(config, model, counter, test_episodes, device, render, 
-         record_video=False, recording_interval=None, final_test=False, evaluate_transfer=False, use_pb=False):
+         record_video=False, recording_interval=None, final_test=False, use_pb=False):
     """Evaluation test that runs every config.test_interval-th step.
     Parameters
     ----------
@@ -76,8 +76,6 @@ def test(config, model, counter, test_episodes, device, render,
         the interval at which to record episodes
     final_test: bool
         True -> this test is the final test, and the max moves would be 108k/skip
-    evaluate_transfer: bool
-        True -> create environments different from the ones seen during training
     use_pb: bool
         True -> use tqdm bars
     """
@@ -95,8 +93,7 @@ def test(config, model, counter, test_episodes, device, render,
                                 save_path=save_path, 
                                 recording_interval=recording_interval, 
                                 test=True, 
-                                final_test=final_test,
-                                transfer=evaluate_transfer
+                                final_test=final_test
                             ) for i in range(test_episodes)]
         # initializations
         init_obses = [env.reset() for env in envs]
@@ -117,14 +114,13 @@ def test(config, model, counter, test_episodes, device, render,
                 for i in range(test_episodes):
                     envs[i].render("rgb_array")
 
+            stack_obs = []
+            for game_history in game_histories:
+                stack_obs.append(game_history.step_obs())
+            stack_obs = prepare_observation_lst(stack_obs)
             if config.image_based:
-                stack_obs = []
-                for game_history in game_histories:
-                    stack_obs.append(game_history.step_obs())
-                stack_obs = prepare_observation_lst(stack_obs)
                 stack_obs = torch.from_numpy(stack_obs).to(device).float() / 255.0
             else:
-                stack_obs = [game_history.step_obs() for game_history in game_histories]
                 stack_obs = torch.from_numpy(np.array(stack_obs)).to(device)
 
             with autocast():

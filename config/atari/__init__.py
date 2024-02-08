@@ -136,9 +136,10 @@ class AtariConfig(BaseConfig):
             init_zero=self.init_zero,
             state_norm=self.state_norm)
 
-    def new_game(self, seed=None, record_video=False, save_path=None, recording_interval=0, test=False, final_test=False):
+    def new_game(self, seed=None, env_idx=None, actor_rank=None, render_mode="rgb_array",
+                 record_video=False, save_path=None, recording_interval=None, test=False, final_test=False):
         # Base environment
-        
+        env = gym.make(self.env_name, render_mode=render_mode)
         
         # Wrap in video recorder
         if record_video:
@@ -155,9 +156,11 @@ class AtariConfig(BaseConfig):
                 max_moves = 108000 // self.frame_skip
             else:
                 max_moves = self.test_max_moves
-            env = make_atari(self.env_name, skip=self.frame_skip, max_episode_steps=max_moves)
+            env = make_atari(env, skip=self.frame_skip,
+                             max_episode_steps=max_moves)
         else:
-            env = make_atari(self.env_name, skip=self.frame_skip, max_episode_steps=self.max_moves)
+            env = make_atari(env, skip=self.frame_skip,
+                             max_episode_steps=self.max_moves)
 
         if self.episode_life and not test:
             env = EpisodicLifeEnv(env)

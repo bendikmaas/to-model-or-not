@@ -119,13 +119,15 @@ class DataWorker(object):
 
         start_training = False
         save_path = os.path.join(self.config.exp_path, "recordings")
-        
+
         # Ensure that all environments across all actors
         # are created with individual seeds
-        seeds = [self.config.seed + (self.config.num_levels_per_env * i) + self.rank * self.config.num_levels_per_actor 
+        seeds = [self.config.seed + (self.config.num_levels_per_env * i) + self.rank * self.config.num_levels_per_actor
                  for i in range(num_parallel_envs)]
         envs = [self.config.new_game(
-            seed=seeds[i],
+            seed=self.config.seed,
+            env_idx=i,
+            actor_rank=self.rank,
             record_video=(self.record_video and i == 0),
             save_path=save_path,
             recording_interval=self.config.recording_interval
@@ -289,12 +291,12 @@ class DataWorker(object):
                                 visit_entropies[i] = 0
 
                         # Prepare observations for model inference
-                        stack_obs = [game_history.step_obs() for game_history in game_histories]
+                        stack_obs = [game_history.step_obs()
+                                     for game_history in game_histories]
+                        stack_obs = prepare_observation_lst(stack_obs)
                         if self.config.image_based:
-                            stack_obs = prepare_observation_lst(stack_obs)
                             stack_obs = torch.from_numpy(stack_obs).to(self.device).float() / 255.0
                         else:
-                            stack_obs = [game_history.step_obs() for game_history in game_histories]
                             stack_obs = torch.from_numpy(np.array(stack_obs)).to(self.device)
 
                         # Get initial inference
