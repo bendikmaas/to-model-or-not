@@ -291,12 +291,12 @@ class DataWorker(object):
                                 visit_entropies[i] = 0
 
                         # Prepare observations for model inference
-                        stack_obs = [game_history.step_obs() for game_history in game_histories]
+                        stack_obs = [game_history.step_obs()
+                                     for game_history in game_histories]
+                        stack_obs = prepare_observation_lst(stack_obs)
                         if self.config.image_based:
-                            stack_obs = prepare_observation_lst(stack_obs)
                             stack_obs = torch.from_numpy(stack_obs).to(self.device).float() / 255.0
                         else:
-                            stack_obs = [game_history.step_obs() for game_history in game_histories]
                             stack_obs = torch.from_numpy(np.array(stack_obs)).to(self.device)
 
                         # Get initial inference

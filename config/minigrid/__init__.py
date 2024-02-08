@@ -6,6 +6,7 @@ from core.config import BaseConfig
 from .model import EfficientZeroNet
 from .env_wrapper import OneHotObjEncodingWrapper, MinigridWrapper, DeterministicLavaGap
 
+# TODO: Fix accurate return bounds
 games = {
     "MiniGrid-LavaGapS5-v0": {"return_bounds": (0., 0.97),
                               "grid_size": 5,
@@ -56,8 +57,6 @@ class MinigridConfig(BaseConfig):
             # network initialization/ & normalization
             init_zero=True,
             clip_reward=False,
-            # storage efficient
-            image_based=True,
             # lr scheduler
             lr_warm_up=0.01,
             lr_init=0.2,

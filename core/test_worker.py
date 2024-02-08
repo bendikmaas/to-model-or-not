@@ -126,14 +126,13 @@ class TestWorker(object):
                     for i in range(test_episodes):
                         envs[i].render("rgb_array")
 
+                stack_obs = []
+                for game_history in game_histories:
+                    stack_obs.append(game_history.step_obs())
+                stack_obs = prepare_observation_lst(stack_obs)
                 if self.config.image_based:
-                    stack_obs = []
-                    for game_history in game_histories:
-                        stack_obs.append(game_history.step_obs())
-                    stack_obs = prepare_observation_lst(stack_obs)
                     stack_obs = torch.from_numpy(stack_obs).to(self.config.device).float() / 255.0
                 else:
-                    stack_obs = [game_history.step_obs() for game_history in game_histories]
                     stack_obs = torch.from_numpy(np.array(stack_obs)).to(self.config.device)
 
                 with autocast():
