@@ -84,7 +84,7 @@ We provide `train.sh` and `test.sh` for training and evaluation.
 | `--revisit_policy_search_rate 0.99` |set the rate of reanalyzing policies
 | `--use_root_value`                  |use root values in value targets (require more GPU actors)
 | `--render`                          |render in evaluation
-| `--save_video`                      |save videos for evaluation
+| `--record_video`                      |save videos for evaluation
  
 ## Architecture Designs
 The architecture of the training pipeline is shown as follows:
