@@ -357,7 +357,7 @@ class PredictionNetwork(nn.Module):
         policy = nn.functional.relu(policy)
 
         value = value.contiguous().view(-1, self.block_output_size_value)
-        policy = policy.view(-1, self.block_output_size_policy)
+        policy = policy.contiguous().view(-1, self.block_output_size_policy)
         value = self.fc_value(value)
         policy = self.fc_policy(policy)
         return policy, value
