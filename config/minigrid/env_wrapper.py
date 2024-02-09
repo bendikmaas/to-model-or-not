@@ -129,7 +129,6 @@ class DeterministicLavaGap(LavaGapEnv):
         rng = random.Random(seed)
         self.gap_positions = rng.sample(self.legal_gap_positions,
                                         self.num_train_levels)
-        print(f"Selected gap positions: {self.gap_positions}")
 
     def _gen_grid(self, width, height):
         assert width >= 5 and height >= 5
