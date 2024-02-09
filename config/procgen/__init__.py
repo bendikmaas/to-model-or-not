@@ -8,6 +8,7 @@ from core.dataset import Transforms
 from .env_wrapper import ProcgenWrapper
 from .model import EfficientZeroNet
 
+#TODO: Fill in remaining return-bounds and reference paper
 return_bounds = {"coinrun": (5.,10.),
                  "chaser": (.5, 14.2)}
 
