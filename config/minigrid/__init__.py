@@ -128,7 +128,8 @@ class MinigridConfig(BaseConfig):
         self.grid_size = games[env_name]["grid_size"]
         self.encoded_objects = games[env_name]["encoded_objects"]
 
-        obs_shape = (len(self.encoded_objects), self.grid_size, self.grid_size)
+        obs_shape = (len(self.encoded_objects),
+                     self.agent_view_size, self.agent_view_size)
         self.obs_shape = (
             obs_shape[0] * self.stacked_observations, obs_shape[1], obs_shape[2])
 
