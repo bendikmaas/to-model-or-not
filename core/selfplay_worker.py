@@ -320,7 +320,8 @@ class DataWorker(object):
                             deterministic = False
                             
                             # Before starting training, use a random policy
-                            distributions = roots_distributions[i] if start_training else np.ones(self.config.action_space)
+                            distributions = roots_distributions[i] if start_training else np.ones(
+                                self.config.action_space_size)
                             value, temperature, env = roots_values[i], _temperature[i], envs[i]
                             
                             # Select action

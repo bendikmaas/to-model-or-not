@@ -38,7 +38,7 @@ class MinigridWrapper(Game):
     def step(self, action):
         observation, reward, terminated, truncated, info = self.env.step(
             action)
-        observation = observation[0].astype(np.uint8)
+        observation = observation.astype(np.uint8)
 
         done = terminated or truncated
 

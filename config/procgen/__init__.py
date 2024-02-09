@@ -115,7 +115,6 @@ class ProcgenConfig(BaseConfig):
         self.obs_shape = (obs_shape[0] * self.stacked_observations, obs_shape[1], obs_shape[2])
 
         game = self.new_game()
-        self.action_space = game.action_space_size
         self.action_space_size = game.action_space_size
         self.min_return, self.max_return = return_bounds[env_name.split("-")[1]] 
 
