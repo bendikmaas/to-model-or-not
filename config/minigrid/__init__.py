@@ -6,24 +6,23 @@ from core.config import BaseConfig
 from .model import EfficientZeroNet
 from .env_wrapper import OneHotObjEncodingWrapper, MinigridWrapper, DeterministicLavaGap
 
-# TODO: Fix accurate return bounds
 games = {
-    "MiniGrid-LavaGapS5-v0": {"return_bounds": (0., 0.97),
+    "MiniGrid-LavaGapS5-v0": {"return_bounds": (0., 0.988),
                               "grid_size": 5,
                               "encoded_objects": ["unseen", "wall",
                                                   "empty", "goal", "lava", "agent"]
                               },
-    "MiniGrid-LavaGapS6-v0": {"return_bounds": (0., 0.97),
+    "MiniGrid-LavaGapS6-v0": {"return_bounds": (0., 0.982),
                               "grid_size": 6,
                               "encoded_objects": ["unseen", "wall",
                                                   "empty", "goal", "lava", "agent"]
                               },
-    "MiniGrid-LavaGapS7-v0": {"return_bounds": (0., 0.97),
+    "MiniGrid-LavaGapS7-v0": {"return_bounds": (0., 0.97625),
                               "grid_size": 7,
                               "encoded_objects": ["unseen", "wall",
                                                   "empty", "goal", "lava", "agent"]
                               },
-    "MiniGrid-Empty-5x5-v0": {"return_bounds": (0., 0.97),
+    "MiniGrid-Empty-5x5-v0": {"return_bounds": (0., 0.988),
                               "grid_size": 5,
                               "encoded_objects": ["unseen", "wall",
                                                   "empty", "goal", "agent"]
@@ -34,16 +33,16 @@ games = {
 class MinigridConfig(BaseConfig):
     def __init__(self):
         super(MinigridConfig, self).__init__(
-            training_steps=100000,
-            last_steps=20000,
-            test_interval=2500,
+            training_steps=10000,
+            last_steps=2000,
+            test_interval=250,
             log_interval=100,
             vis_interval=100,
             test_episodes=32,
             checkpoint_interval=100,
             target_model_interval=200,
-            save_ckpt_interval=10000,
-            recording_interval=5,
+            save_ckpt_interval=1000,
+            recording_interval=25,
             max_moves=108000,
             test_max_moves=12000,
             history_length=400,
@@ -51,9 +50,9 @@ class MinigridConfig(BaseConfig):
             dirichlet_alpha=0.3,
             value_delta_max=0.01,
             num_simulations=50,
-            batch_size=256,
+            batch_size=128,
             td_steps=5,
-            num_actors=2,
+            num_actors=1,
             # network initialization/ & normalization
             init_zero=True,
             clip_reward=False,
@@ -64,12 +63,12 @@ class MinigridConfig(BaseConfig):
             lr_decay_steps=50000,
             auto_td_steps_ratio=0.3,
             # replay window
-            start_transitions=8,
+            start_transitions=4,
             total_transitions=100 * 1000,
             transition_num=1,
             # frame skip & stack observation
             frame_skip=1,
-            stacked_observations=1,
+            stacked_observations=2,
             # coefficient
             reward_loss_coeff=1,
             value_loss_coeff=0.25,
@@ -109,7 +108,7 @@ class MinigridConfig(BaseConfig):
 
         # Minigrid-specific parameters
         self.agent_view_size = 7
-        self.num_train_levels = 5
+        self.num_train_levels = 6
 
     def visit_softmax_temperature_fn(self, trained_steps):
         if self.change_temperature:
@@ -127,8 +126,9 @@ class MinigridConfig(BaseConfig):
         self.env_name = env_name
         self.grid_size = games[env_name]["grid_size"]
         self.encoded_objects = games[env_name]["encoded_objects"]
+        self.num_image_channels = len(self.encoded_objects)
 
-        obs_shape = (len(self.encoded_objects),
+        obs_shape = (self.num_image_channels,
                      self.agent_view_size, self.agent_view_size)
         self.obs_shape = (
             obs_shape[0] * self.stacked_observations, obs_shape[1], obs_shape[2])
