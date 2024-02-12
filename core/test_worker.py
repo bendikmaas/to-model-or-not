@@ -69,9 +69,6 @@ class TestWorker(object):
                 test_logger.info(f"Test log: {test_log}")
 
                 self.shared_storage.add_test_log.remote(counter, test_log)
-                test_dict = ray.get(self.shared_storage.get_test_dict.remote())
-                test_logger.info(f"Test dict stored in storage: {test_dict}")
-                print('Step {}, test scores: \n{}'.format(counter, episode_returns))
 
             time.sleep(10)
             
@@ -91,7 +88,6 @@ class TestWorker(object):
         model = self.test_model.to(self.config.device)
         model.eval()
         test_episodes = self.config.test_episodes
-        num_levels_per_env = self.config.num_levels_eval // test_episodes
         save_path = os.path.join(self.config.exp_path, 'recordings')
 
         if use_pb:
@@ -103,7 +99,7 @@ class TestWorker(object):
                                          record_video=(
                                              self.record_video and i == 0),
                                          save_path=save_path,
-                                         recording_interval=recording_interval,
+                                         recording_interval=1,
                                          test=True,
                                          final_test=final_test,
                                 ) for i in range(test_episodes)]
