@@ -515,10 +515,13 @@ class EfficientZeroNet(BaseNet):
         )
 
         # projection
-        in_dim = num_channels * math.ceil(observation_shape[1] / 16) * math.ceil(observation_shape[2] / 16)
-        self.porjection_in_dim = in_dim
+        if downsample:
+            self.projection_in_dim = num_channels * math.ceil(observation_shape[1] / 16) /
+                                        * math.ceil(observation_shape[2] / 16)
+        else:
+            self.projection_in_dim = num_channels * observation_shape[1] * observation_shape[2]
         self.projection = nn.Sequential(
-            nn.Linear(self.porjection_in_dim, self.proj_hid),
+            nn.Linear(self.projection_in_dim, self.proj_hid),
             nn.BatchNorm1d(self.proj_hid),
             nn.ReLU(),
             nn.Linear(self.proj_hid, self.proj_hid),
@@ -581,7 +584,7 @@ class EfficientZeroNet(BaseNet):
 
     def project(self, hidden_state, with_grad=True):
         # only the branch of proj + pred can share the gradients
-        hidden_state = hidden_state.view(-1, self.porjection_in_dim)
+        hidden_state = hidden_state.view(-1, self.projection_in_dim)
         proj = self.projection(hidden_state)
 
         # with grad, use proj_head
