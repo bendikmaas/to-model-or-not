@@ -516,8 +516,7 @@ class EfficientZeroNet(BaseNet):
 
         # projection
         if downsample:
-            self.projection_in_dim = num_channels * math.ceil(observation_shape[1] / 16) /
-                                        * math.ceil(observation_shape[2] / 16)
+            self.projection_in_dim = num_channels * math.ceil(observation_shape[1] / 16) * math.ceil(observation_shape[2] / 16)
         else:
             self.projection_in_dim = num_channels * observation_shape[1] * observation_shape[2]
         self.projection = nn.Sequential(
