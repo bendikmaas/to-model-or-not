@@ -68,8 +68,8 @@ def update_weights(model, batch, optimizer, replay_buffer, config, scaler, vis_r
     # obs_target_batch is the observations for s_t (hidden states from representation function)
     # to save GPU memory usage, obs_batch_ori contains (stack + unroll steps) frames
     obs_batch_ori = torch.tensor(obs_batch_ori, dtype=torch.float, device=config.device) / 255.0
-    obs_batch = obs_batch_ori[:, 0: config.stacked_observations * config.image_channel, :, :]
-    obs_target_batch = obs_batch_ori[:, config.image_channel:, :, :]
+    obs_batch = obs_batch_ori[:, 0: config.stacked_observations * config.num_image_channels, :, :]
+    obs_target_batch = obs_batch_ori[:, config.num_image_channels:, :, :]
 
     # do augmentations
     if config.use_augmentation:
@@ -147,8 +147,8 @@ def update_weights(model, batch, optimizer, replay_buffer, config, scaler, vis_r
                 # unroll with the dynamics function
                 value, value_prefix, policy_logits, hidden_state, reward_hidden = model.recurrent_inference(hidden_state, reward_hidden, action_batch[:, step_i])
 
-                beg_index = config.image_channel * step_i
-                end_index = config.image_channel * (step_i + config.stacked_observations)
+                beg_index = config.num_image_channels * step_i
+                end_index = config.num_image_channels * (step_i + config.stacked_observations)
 
                 # consistency loss
                 if config.consistency_coeff > 0:
@@ -202,8 +202,8 @@ def update_weights(model, batch, optimizer, replay_buffer, config, scaler, vis_r
             # unroll with the dynamics function
             value, value_prefix, policy_logits, hidden_state, reward_hidden = model.recurrent_inference(hidden_state, reward_hidden, action_batch[:, step_i])
 
-            beg_index = config.image_channel * step_i
-            end_index = config.image_channel * (step_i + config.stacked_observations)
+            beg_index = config.num_image_channels * step_i
+            end_index = config.num_image_channels * (step_i + config.stacked_observations)
 
             # consistency loss
             if config.consistency_coeff > 0:

@@ -110,8 +110,8 @@ class ProcgenConfig(BaseConfig):
         
         # gray scale
         if self.gray_scale:
-            self.image_channel = 1
-        obs_shape = (self.image_channel, 64, 64)
+            self.num_image_channels = 1
+        obs_shape = (self.num_image_channels, 64, 64)
         self.obs_shape = (obs_shape[0] * self.stacked_observations, obs_shape[1], obs_shape[2])
 
         game = self.new_game()

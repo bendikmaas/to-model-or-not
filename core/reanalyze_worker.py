@@ -225,8 +225,8 @@ class BatchWorker_CPU(object):
         else:
             policy_non_re_context = None
 
-        countext = reward_value_context, policy_re_context, policy_non_re_context, inputs_batch, weights
-        self.mcts_storage.push(countext)
+        context = reward_value_context, policy_re_context, policy_non_re_context, inputs_batch, weights
+        self.mcts_storage.push(context)
 
     def run(self):
         try:
@@ -243,17 +243,18 @@ class BatchWorker_CPU(object):
                 start = ray.get(self.storage.get_start_signal.remote())
                 time.sleep(1)
                 continue
-
+            
             ray_data_lst = [self.storage.get_training_step_counter.remote(), self.storage.get_target_weights.remote()]
             trained_steps, target_weights = ray.get(ray_data_lst)
 
-            beta = self.beta_schedule.value(trained_steps)
-            # obtain the batch context from replay buffer
-            batch_context = ray.get(self.replay_buffer.prepare_batch_context.remote(self.config.batch_size, beta))
             # break
             if trained_steps >= self.config.training_steps + self.config.last_steps:
                 time.sleep(30)
                 break
+
+            # obtain the batch context from replay buffer
+            beta = self.beta_schedule.value(trained_steps)
+            batch_context = ray.get(self.replay_buffer.prepare_batch_context.remote(self.config.batch_size, beta))
 
             new_model_index = trained_steps // self.config.target_model_interval
             if new_model_index > self.last_model_index:

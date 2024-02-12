@@ -284,7 +284,7 @@ class BaseConfig(object):
         self.prioritized_replay_eps = 1e-6
 
         # env
-        self.image_channel = 3
+        self.num_image_channels = 3
 
         # contrastive arch
         self.proj_hid = proj_hid

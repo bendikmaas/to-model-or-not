@@ -102,8 +102,8 @@ class AtariConfig(BaseConfig):
         self.env_name = env_name
         # gray scale
         if self.gray_scale:
-            self.image_channel = 1
-        obs_shape = (self.image_channel, 96, 96)
+            self.num_image_channels = 1
+        obs_shape = (self.num_image_channels, 96, 96)
         self.obs_shape = (obs_shape[0] * self.stacked_observations, obs_shape[1], obs_shape[2])
 
         game = self.new_game()
