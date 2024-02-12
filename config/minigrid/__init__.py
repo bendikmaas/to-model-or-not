@@ -2,6 +2,7 @@ import gymnasium as gym
 from minigrid.wrappers import ImgObsWrapper
 import torch
 
+from core.dataset import Transforms
 from core.config import BaseConfig
 from .model import EfficientZeroNet
 from .env_wrapper import OneHotObjEncodingWrapper, MinigridWrapper, DeterministicLavaGap
@@ -33,9 +34,9 @@ games = {
 class MinigridConfig(BaseConfig):
     def __init__(self):
         super(MinigridConfig, self).__init__(
-            training_steps=10000,
-            last_steps=2000,
-            test_interval=250,
+            training_steps=100000,
+            last_steps=20000,
+            test_interval=2000,
             log_interval=100,
             vis_interval=100,
             test_episodes=32,
@@ -43,14 +44,14 @@ class MinigridConfig(BaseConfig):
             target_model_interval=200,
             save_ckpt_interval=1000,
             recording_interval=25,
-            max_moves=108000,
-            test_max_moves=12000,
+            max_moves=200,
+            test_max_moves=220,
             history_length=400,
             discount=0.997,
             dirichlet_alpha=0.3,
             value_delta_max=0.01,
             num_simulations=50,
-            batch_size=128,
+            batch_size=256,
             td_steps=5,
             num_actors=1,
             # network initialization/ & normalization
@@ -134,7 +135,7 @@ class MinigridConfig(BaseConfig):
             obs_shape[0] * self.stacked_observations, obs_shape[1], obs_shape[2])
 
         game = self.new_game()
-        self.action_space_size = game.action_space_size
+        self.action_space_size = 3
         self.min_return, self.max_return = games[env_name]["return_bounds"]
 
     def get_uniform_network(self):
@@ -183,8 +184,15 @@ class MinigridConfig(BaseConfig):
         # Wrap in video recorder
         if record_video:
             from gymnasium.wrappers.record_video import RecordVideo
-            name_prefix = "test" if final_test else "train"
-            interval = self.recording_interval if recording_interval is None else recording_interval
+            if final_test:
+                name_prefix = "final_test"
+                interval = 1
+            elif test:
+                name_prefix = "test"
+                interval = 1
+            else:
+                name_prefix = "train"
+                interval = self.recording_interval if recording_interval is None else recording_interval
             env = RecordVideo(env,
                               video_folder=save_path,
                               episode_trigger=lambda episode_id: episode_id % interval == 0,
