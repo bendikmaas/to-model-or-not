@@ -322,7 +322,9 @@ class BatchWorker_GPU(object):
             for i in range(slices):
                 beg_index = m_batch * i
                 end_index = m_batch * (i + 1)
-                m_obs = torch.from_numpy(value_obs_lst[beg_index:end_index]).to(device).float() / 255.0
+                m_obs = torch.from_numpy(value_obs_lst[beg_index:end_index]).to(device).float()
+                if self.config.image_based:
+                    m_obs /= 255.0
                 if self.config.amp_type == 'torch_amp':
                     with autocast():
                         m_output = self.model.initial_inference(m_obs)
@@ -413,7 +415,9 @@ class BatchWorker_GPU(object):
                 beg_index = m_batch * i
                 end_index = m_batch * (i + 1)
 
-                m_obs = torch.from_numpy(policy_obs_lst[beg_index:end_index]).to(device).float() / 255.0
+                m_obs = torch.from_numpy(policy_obs_lst[beg_index:end_index]).to(device).float()
+                if self.config.image_based:
+                    m_obs /= 255.0
                 if self.config.amp_type == 'torch_amp':
                     with autocast():
                         m_output = self.model.initial_inference(m_obs)

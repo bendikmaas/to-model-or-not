@@ -67,7 +67,9 @@ def update_weights(model, batch, optimizer, replay_buffer, config, scaler, vis_r
     # obs_batch is the observation for hat s_t (predicted hidden states from dynamics function)
     # obs_target_batch is the observations for s_t (hidden states from representation function)
     # to save GPU memory usage, obs_batch_ori contains (stack + unroll steps) frames
-    obs_batch_ori = torch.tensor(obs_batch_ori, dtype=torch.float, device=config.device) / 255.0
+    obs_batch_ori = torch.tensor(obs_batch_ori, dtype=torch.float, device=config.device)
+    if config.image_based:
+        obs_batch_ori /= 255.0
     obs_batch = obs_batch_ori[:, 0: config.stacked_observations * config.num_image_channels, :, :]
     obs_target_batch = obs_batch_ori[:, config.num_image_channels:, :, :]
 
