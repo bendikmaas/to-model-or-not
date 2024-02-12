@@ -26,11 +26,18 @@ class TestWorker(object):
         self.test_model = self.config.get_uniform_network()
         self.record_video = record_video
         
+        self.save_path = os.path.join(config.exp_path, 'recordings')
+        self.envs = [config.new_game(seed=config.seed,
+                                    env_idx=i,
+                                         record_video=(record_video and i == 0),
+                                         save_path=self.save_path,
+                                         recording_interval=1,
+                                         test=True
+                                ) for i in range(config.test_episodes)]
+        
     def _test(self):
-        test_logger.info("Test worker initialized...")
         while True:
             counter = ray.get(self.shared_storage.get_training_step_counter.remote())
-            test_logger.info(f"Training step {counter} and counting...")
             # Training finished
             if counter >= self.config.training_steps + self.config.last_steps:
                 time.sleep(30)
@@ -38,21 +45,16 @@ class TestWorker(object):
 
             # Run test
             if counter >= self.config.test_interval * self.test_runs:
-                test_logger.info(f"Run test at step {counter}")
                 self.test_runs += 1
                 self.test_model.set_weights(ray.get(self.shared_storage.get_weights.remote()))
                 self.test_model.eval()
 
                 episode_returns, _ = self.test(counter=counter, render=False)
-                test_logger.info(f"Episode return: {episode_returns}")
                 mean_return = episode_returns.mean()
                 std_return = episode_returns.std()
                 normalized_return = (mean_return - self.config.min_return) / (self.config.max_return - self.config.min_return)
-                test_logger.info(f"Normalized return: {normalized_return}")
                 
-                print('Start evaluation at step {}.'.format(counter))
                 if mean_return >= self.best_mean_return:
-                    test_logger.info(f"Best mean return yet!")
                     self.best_mean_return = mean_return
                     torch.save(self.test_model.state_dict(), self.config.model_path)
                 
@@ -66,7 +68,6 @@ class TestWorker(object):
                     'min_test_return': episode_returns.min(),
                 }
                 
-                test_logger.info(f"Test log: {test_log}")
 
                 self.shared_storage.add_test_log.remote(counter, test_log)
 
@@ -88,21 +89,13 @@ class TestWorker(object):
         model = self.test_model.to(self.config.device)
         model.eval()
         test_episodes = self.config.test_episodes
-        save_path = os.path.join(self.config.exp_path, 'recordings')
+        save_path = self.save_path
 
         if use_pb:
             pb = tqdm(np.arange(self.config.max_moves), leave=True)
 
         with torch.no_grad():
-            envs = [self.config.new_game(seed=self.config.seed,
-                                         env_idx=i,
-                                         record_video=(
-                                             self.record_video and i == 0),
-                                         save_path=save_path,
-                                         recording_interval=1,
-                                         test=True,
-                                         final_test=final_test,
-                                ) for i in range(test_episodes)]
+            envs = self.envs
             
             # Initialize environments and trajectories
             init_obses = [env.reset() for env in envs]
@@ -118,10 +111,6 @@ class TestWorker(object):
             step = 0
             episode_returns = np.zeros(test_episodes)
             while not dones.all():
-                if render:
-                    for i in range(test_episodes):
-                        envs[i].render("rgb_array")
-
                 stack_obs = []
                 for game_history in game_histories:
                     stack_obs.append(game_history.step_obs())
@@ -174,8 +163,8 @@ class TestWorker(object):
                     pb.update(1)
 
             for env in envs:
-                env.close()
-
+                env.reset()
+        
         return episode_returns, save_path
               
       
