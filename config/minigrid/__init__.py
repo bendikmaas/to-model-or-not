@@ -34,16 +34,16 @@ games = {
 class MinigridConfig(BaseConfig):
     def __init__(self):
         super(MinigridConfig, self).__init__(
-            training_steps=100000,
-            last_steps=20000,
-            test_interval=2000,
+            training_steps=20000,
+            last_steps=4000,
+            test_interval=500,
             log_interval=100,
             vis_interval=100,
-            test_episodes=32,
+            test_episodes=8,
             checkpoint_interval=100,
             target_model_interval=200,
-            save_ckpt_interval=1000,
-            recording_interval=25,
+            save_ckpt_interval=4000,
+            recording_interval=100,
             max_moves=200,
             test_max_moves=220,
             history_length=400,
@@ -61,7 +61,7 @@ class MinigridConfig(BaseConfig):
             lr_warm_up=0.01,
             lr_init=0.2,
             lr_decay_rate=0.1,
-            lr_decay_steps=50000,
+            lr_decay_steps=10000,
             auto_td_steps_ratio=0.3,
             # replay window
             start_transitions=4,
@@ -109,7 +109,7 @@ class MinigridConfig(BaseConfig):
 
         # Minigrid-specific parameters
         self.agent_view_size = 7
-        self.num_train_levels = 6
+        self.num_train_levels = 5
 
     def visit_softmax_temperature_fn(self, trained_steps):
         if self.change_temperature:
@@ -187,11 +187,8 @@ class MinigridConfig(BaseConfig):
             if final_test:
                 name_prefix = "final_test"
                 interval = 1
-            elif test:
-                name_prefix = "test"
-                interval = 1
             else:
-                name_prefix = "train"
+                name_prefix = "test" if test else "train"
                 interval = self.recording_interval if recording_interval is None else recording_interval
             env = RecordVideo(env,
                               video_folder=save_path,
