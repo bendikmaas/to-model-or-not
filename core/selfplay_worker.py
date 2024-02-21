@@ -184,7 +184,6 @@ class DataWorker(object):
 
 
                 # Play games in parallel until max moves or all done
-                print("Beginning self play")
                 step_counter = 0
                 while not dones.all() and (step_counter <= self.config.max_moves):
                     try:

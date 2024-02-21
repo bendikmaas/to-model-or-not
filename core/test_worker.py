@@ -31,7 +31,7 @@ class TestWorker(object):
                                     env_idx=i,
                                          record_video=(record_video and i == 0),
                                          save_path=self.save_path,
-                                         recording_interval=1,
+                                         recording_interval=10,
                                          test=True
                                 ) for i in range(config.test_episodes)]
         

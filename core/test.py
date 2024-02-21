@@ -37,7 +37,6 @@ def _test(config, shared_storage):
                                  record_video=config.record_video, recording_interval=config.recording_interval)
             mean_score = test_score.mean()
             std_score = test_score.std()
-            print('Start evaluation at step {}.'.format(counter))
             if mean_score >= best_test_score:
                 best_test_score = mean_score
                 torch.save(test_model.state_dict(), config.model_path)
@@ -50,7 +49,6 @@ def _test(config, shared_storage):
             }
 
             shared_storage.add_test_log.remote(counter, test_log)
-            print('Step {}, test scores: \n{}'.format(counter, test_score))
 
         time.sleep(30)
 
@@ -110,9 +108,6 @@ def test(config, model, counter, test_episodes, device, render,
         ep_clip_rewards = np.zeros(test_episodes)
         # loop
         while not dones.all():
-            if render:
-                for i in range(test_episodes):
-                    envs[i].render("rgb_array")
 
             stack_obs = []
             for game_history in game_histories:
