@@ -39,7 +39,7 @@ class MinigridConfig(BaseConfig):
             test_interval=500,
             log_interval=100,
             vis_interval=100,
-            test_episodes=8,
+            test_episodes=32,
             checkpoint_interval=100,
             target_model_interval=200,
             save_ckpt_interval=4000,
@@ -69,7 +69,7 @@ class MinigridConfig(BaseConfig):
             transition_num=1,
             # frame skip & stack observation
             frame_skip=1,
-            stacked_observations=2,
+            stacked_observations=4,
             # coefficient
             reward_loss_coeff=1,
             value_loss_coeff=0.25,
@@ -108,8 +108,8 @@ class MinigridConfig(BaseConfig):
         self.downsample = False
 
         # Minigrid-specific parameters
-        self.agent_view_size = 7
-        self.num_train_levels = 5
+        self.agent_view_size = 3
+        self.train_proportion = .3
 
     def visit_softmax_temperature_fn(self, trained_steps):
         if self.change_temperature:
@@ -128,6 +128,7 @@ class MinigridConfig(BaseConfig):
         self.grid_size = games[env_name]["grid_size"]
         self.encoded_objects = games[env_name]["encoded_objects"]
         self.num_image_channels = len(self.encoded_objects)
+        self.num_train_levels = int(((self.grid_size - 2)**3)*(self.grid_size-4) * self.train_proportion)
 
         obs_shape = (self.num_image_channels,
                      self.agent_view_size, self.agent_view_size)
