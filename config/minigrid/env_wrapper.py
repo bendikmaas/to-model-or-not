@@ -118,17 +118,18 @@ class DeterministicLavaGap(LavaGapEnv):
         super().__init__(size, max_steps=max_steps, **kwargs)
 
         # Enumerate and store all possible gap positions
-        self.legal_gap_positions = []
-        for row in range(1, size - 1):
-            for col in range(2, size - 2):
-                self.legal_gap_positions.append((col, row))
+        self.test_configurations = []
+        for start_pos in range(1, size - 1):
+            for goal_pos in range(1, size - 1):
+                for row in range(1, size - 1):
+                    for col in range(2, size - 2):
+                        self.test_configurations.append((start_pos, col, row, goal_pos))
 
         self.num_train_levels = min(
-            num_train_levels, len(self.legal_gap_positions))
+            num_train_levels, len(self.test_configurations))
 
         rng = random.Random(seed)
-        self.gap_positions = rng.sample(self.legal_gap_positions,
-                                        self.num_train_levels)
+        self.train_configurations = rng.sample(self.test_configurations, self.num_train_levels)
 
     def _gen_grid(self, width, height):
         assert width >= 5 and height >= 5
@@ -139,16 +140,19 @@ class DeterministicLavaGap(LavaGapEnv):
         # Generate the surrounding walls
         self.grid.wall_rect(0, 0, width, height)
 
-        # Place the agent in the top-left corner
-        self.agent_pos = np.array((1, 1))
+        # Sample a random level configuration
+        agent_row, gap_col, gap_row, goal_row = self._rand_elem(self.train_configurations)
+        
+        # Place the agent in the left-most column
+        self.agent_pos = np.array((1, agent_row))
         self.agent_dir = 0
 
         # Place a goal square in the bottom-right corner
-        self.goal_pos = np.array((width - 2, height - 2))
+        self.goal_pos = np.array((width - 2, goal_row))
         self.put_obj(Goal(), *self.goal_pos)
 
         # Generate and store random gap positionn
-        self.gap_pos = np.array(self._rand_elem(self.gap_positions))
+        self.gap_pos = np.array((gap_col, gap_row))
 
         # Place the obstacle wall
         self.grid.vert_wall(self.gap_pos[0], 1, height - 2, self.obstacle_type)
