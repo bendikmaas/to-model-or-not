@@ -247,6 +247,7 @@ class ReconstructionNetwork(torch.nn.Module):
         num_blocks,
         num_channels,
         downsample,
+        momentum=0.1,
     ):
         """Reconstruction network
 
@@ -259,9 +260,9 @@ class ReconstructionNetwork(torch.nn.Module):
         super().__init__()
         self.downsample = downsample
         self.resblocks = torch.nn.ModuleList(
-            [ResidualBlock(num_channels) for _ in range(num_blocks)]
+            [ResidualBlock(num_channels, num_channels, momentum=momentum) for _ in range(num_blocks)]
         )
-        self.bn = torch.nn.BatchNorm2d(num_channels)
+        self.bn = torch.nn.BatchNorm2d(num_channels, momentum=momentum)
         self.conv = conv3x3(num_channels, observation_shape[0])
 
         if downsample:
@@ -578,6 +579,7 @@ class EfficientZeroNet(BaseNet):
             num_blocks,
             num_channels,
             downsample,
+            momentum=bn_mt
         )
 
         self.dynamics_network = DynamicsNetwork(

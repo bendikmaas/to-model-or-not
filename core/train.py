@@ -156,9 +156,9 @@ def update_weights(model, batch, optimizer, replay_buffer, config, scaler, vis_r
         pixel_wise_loss = torch.square(reconstructed_state - obs_batch).flatten(
             start_dim=1
         )
-        reconstruction_loss = (
-            pixel_wise_loss.mean(1) + torch.max(pixel_wise_loss, dim=1)[0]
-        )
+        reconstruction_loss = pixel_wise_loss.mean(1)
+        if config.image_based:
+            reconstruction_loss += torch.max(pixel_wise_loss, dim=1)[0]
     else:
         reconstruction_loss = torch.zeros(batch_size, device=config.device)
 
@@ -205,14 +205,14 @@ def update_weights(model, batch, optimizer, replay_buffer, config, scaler, vis_r
                     consistency_loss += temp_loss
 
                 # reconstruction loss
-                if config.reconstructed_coeff > 0:
+                if config.reconstruction_coeff > 0:
                     pixel_wise_loss = torch.square(
                         reconstructed_state
                         - obs_target_batch[:, beg_index:end_index, :, :]
                     ).flatten(start_dim=1)
-                    reconstruction_loss += (
-                        pixel_wise_loss.mean(1) + torch.max(pixel_wise_loss, dim=1)[0]
-                    )
+                    reconstruction_loss += (pixel_wise_loss.mean(1))
+                    if config.image_based:
+                        reconstruction_loss += torch.max(pixel_wise_loss, dim=1)[0]
 
                 policy_loss += -(torch.log_softmax(policy_logits, dim=1) * target_policy[:, step_i + 1]).sum(1)
                 value_loss += config.scalar_value_loss(value, target_value_phi[:, step_i + 1])
@@ -285,13 +285,13 @@ def update_weights(model, batch, optimizer, replay_buffer, config, scaler, vis_r
                 consistency_loss += temp_loss
 
             # reconstruction loss
-            if config.reconstructed_coeff > 0:
+            if config.reconstruction_coeff > 0:
                 pixel_wise_loss = torch.square(
                     reconstructed_state - obs_target_batch[:, beg_index:end_index, :, :]
                 ).flatten(start_dim=1)
-                reconstruction_loss += (
-                    pixel_wise_loss.mean(1) + torch.max(pixel_wise_loss, dim=1)[0]
-                )
+                reconstruction_loss += (pixel_wise_loss.mean(1))
+                if config.image_based:
+                    reconstruction_loss += torch.max(pixel_wise_loss, dim=1)[0]
 
             policy_loss += -(torch.log_softmax(policy_logits, dim=1) * target_policy[:, step_i + 1]).sum(1)
             value_loss += config.scalar_value_loss(value, target_value_phi[:, step_i + 1])
@@ -333,7 +333,7 @@ def update_weights(model, batch, optimizer, replay_buffer, config, scaler, vis_r
     loss = (
         config.consistency_coeff * consistency_loss
         + config.policy_loss_coeff * policy_loss
-        + config.reconstructed_coeff * reconstruction_loss
+        + config.reconstruction_coeff * reconstruction_loss
         + config.value_loss_coeff * value_loss
         + config.reward_loss_coeff * value_prefix_loss
     )
