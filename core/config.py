@@ -24,61 +24,65 @@ class DiscreteSupport(object):
 
 class BaseConfig(object):
 
-    def __init__(self,
-                 training_steps: int,
-                 last_steps: int,
-                 test_interval: int,
-                 test_episodes: int,
-                 checkpoint_interval: int,
-                 target_model_interval: int,
-                 save_ckpt_interval: int,
-                 recording_interval: int,
-                 log_interval: int,
-                 vis_interval: int,
-                 max_moves: int,
-                 test_max_moves: int,
-                 history_length: int,
-                 discount: float,
-                 dirichlet_alpha: float,
-                 value_delta_max: float,
-                 num_simulations: int,
-                 batch_size: int,
-                 td_steps: int,
-                 num_actors: int,
-                 lr_warm_up: float,
-                 lr_init: float,
-                 lr_decay_rate: float,
-                 lr_decay_steps: float,
-                 start_transitions: int,
-                 auto_td_steps_ratio: float = 0.3,
-                 total_transitions: int = 100 * 1000,
-                 transition_num: float = 25,
-                 do_consistency: bool = True,
-                 use_value_prefix: bool = False,
-                 off_correction: bool = False,
-                 gray_scale: bool = False,
-                 episode_life: bool = False,
-                 change_temperature: bool = True,
-                 init_zero: bool = False,
-                 state_norm: bool = False,
-                 clip_reward: bool = False,
-                 random_start: bool = True,
-                 cvt_string: bool = False,
-                 image_based: bool = False,
-                 frame_skip: int = 1,
-                 stacked_observations: int = 16,
-                 lstm_hidden_size: int = 64,
-                 lstm_horizon_len: int = 1,
-                 reward_loss_coeff: float = 1,
-                 value_loss_coeff: float = 1,
-                 policy_loss_coeff: float = 1,
-                 consistency_coeff: float = 1,
-                 proj_hid: int = 256,
-                 proj_out: int = 256,
-                 pred_hid: int = 64,
-                 pred_out: int = 256,
-                 value_support: DiscreteSupport = DiscreteSupport(-300, 300, delta=1),
-                 reward_support: DiscreteSupport = DiscreteSupport(-300, 300, delta=1)):
+    def __init__(
+        self,
+        training_steps: int,
+        last_steps: int,
+        test_interval: int,
+        test_episodes: int,
+        checkpoint_interval: int,
+        target_model_interval: int,
+        save_ckpt_interval: int,
+        recording_interval: int,
+        log_interval: int,
+        vis_interval: int,
+        max_moves: int,
+        test_max_moves: int,
+        history_length: int,
+        discount: float,
+        dirichlet_alpha: float,
+        value_delta_max: float,
+        num_simulations: int,
+        batch_size: int,
+        td_steps: int,
+        num_actors: int,
+        lr_warm_up: float,
+        lr_init: float,
+        lr_decay_rate: float,
+        lr_decay_steps: float,
+        start_transitions: int,
+        auto_td_steps_ratio: float = 0.3,
+        total_transitions: int = 100 * 1000,
+        transition_num: float = 25,
+        do_consistency: bool = True,
+        do_reconstruction: bool = True,
+        use_value_prefix: bool = True,
+        off_correction: bool = True,
+        gray_scale: bool = False,
+        episode_life: bool = False,
+        change_temperature: bool = True,
+        init_zero: bool = False,
+        state_norm: bool = False,
+        clip_reward: bool = False,
+        random_start: bool = True,
+        cvt_string: bool = False,
+        image_based: bool = False,
+        frame_skip: int = 1,
+        stacked_observations: int = 16,
+        lstm_hidden_size: int = 64,
+        lstm_horizon_len: int = 1,
+        reward_loss_coeff: float = 1,
+        value_loss_coeff: float = 1,
+        policy_loss_coeff: float = 1,
+        consistency_coeff: float = 1,
+        reconstruction_coeff: float = 1,
+        proj_hid: int = 256,
+        proj_out: int = 256,
+        pred_hid: int = 64,
+        pred_out: int = 256,
+        value_support: DiscreteSupport = DiscreteSupport(-300, 300, delta=1),
+        reward_support: DiscreteSupport = DiscreteSupport(-300, 300, delta=1),
+    ):
         """Base Config for EfficietnZero
         Parameters
         ----------
@@ -146,6 +150,8 @@ class BaseConfig(object):
             capacity of transitions in replay buffer
         do_consistency: bool
             True -> use temporal consistency
+        do_reconstruction: bool
+            True -> train to reconstruct original observations from hidden states
         use_value_prefix: bool = True,
             True -> predict value prefix
         off_correction: bool
@@ -201,6 +207,7 @@ class BaseConfig(object):
         self.action_space_size = None
         self.num_actors = num_actors
         self.do_consistency = do_consistency
+        self.do_reconstruction = do_reconstruction
         self.use_value_prefix = use_value_prefix
         self.off_correction = off_correction
         self.gray_scale = gray_scale
@@ -259,6 +266,7 @@ class BaseConfig(object):
         self.value_loss_coeff = value_loss_coeff
         self.policy_loss_coeff = policy_loss_coeff
         self.consistency_coeff = consistency_coeff
+        self.reconstruction_coeff = reconstruction_coeff
         self.device = 'cuda'
         self.exp_path = None  # experiment path
         self.debug = False
@@ -401,6 +409,9 @@ class BaseConfig(object):
             self.consistency_coeff = 0
             self.augmentation = None
             self.use_augmentation = False
+
+        if not self.do_reconstruction:
+            self.reconstruction_coeff = 0
 
         if not self.use_value_prefix:
             self.lstm_horizon_len = 1

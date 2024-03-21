@@ -10,15 +10,18 @@ test_logger = logging.getLogger('train_test')
 
 def _log(config, training_step, log_data, model, replay_buffer, lr, shared_storage, summary_writer, vis_result):
     loss_data, td_data, priority_data = log_data
-    
-    (total_loss, 
-     weighted_loss, 
-     loss,
-     reg_loss,
-     policy_loss,
-     value_prefix_loss,
-     value_loss,
-     consistency_loss) = loss_data
+
+    (
+        total_loss,
+        weighted_loss,
+        loss,
+        reg_loss,
+        policy_loss,
+        value_prefix_loss,
+        value_loss,
+        consistency_loss,
+        reconstruction_loss,
+    ) = loss_data
 
     if vis_result:
         new_priority, target_value_prefix, target_value, trans_target_value_prefix, trans_target_value, target_value_prefix_phi, target_value_phi, \
@@ -48,15 +51,30 @@ def _log(config, training_step, log_data, model, replay_buffer, lr, shared_stora
      priority_self_play,
      distributions) = worker_logs
 
-    _msg = '#{:<10} Total Loss: {:<8.3f} [weighted Loss:{:<8.3f} Policy Loss: {:<8.3f} Value Loss: {:<8.3f} ' \
-           'return Sum Loss: {:<8.3f} Consistency Loss: {:<8.3f} ] ' \
-           'Replay Episodes Collected: {:<10d} Buffer Size: {:<10d} Transition Number: {:<8.3f}k ' \
-           'Batch Size: {:<10d} Lr: {:<8.3f}'
-    _msg = _msg.format(training_step, total_loss, weighted_loss, policy_loss, value_loss, value_prefix_loss, consistency_loss,
-                       replay_episodes_collected, replay_buffer_size, total_num / 1000, config.batch_size, lr)
+    _msg = (
+        "#{:<10} Total Loss: {:<8.3f} [weighted Loss:{:<8.3f} Policy Loss: {:<8.3f} Value Loss: {:<8.3f} "
+        "return Sum Loss: {:<8.3f} Consistency Loss: {:<8.3f} Reconstruction Loss: {:<8.3f}] "
+        "Replay Episodes Collected: {:<10d} Buffer Size: {:<10d} Transition Number: {:<8.3f}k "
+        "Batch Size: {:<10d} Lr: {:<8.3f}"
+    )
+    _msg = _msg.format(
+        training_step,
+        total_loss,
+        weighted_loss,
+        policy_loss,
+        value_loss,
+        value_prefix_loss,
+        consistency_loss,
+        reconstruction_loss,
+        replay_episodes_collected,
+        replay_buffer_size,
+        total_num / 1000,
+        config.batch_size,
+        lr,
+    )
     train_logger.info(_msg)
 
-    #test_logger.info(f"Test log at training step {training_step}: {test_dict}")
+    # test_logger.info(f"Test log at training step {training_step}: {test_dict}")
     if test_dict is not None:
         mean_return = np.mean(test_dict['mean_test_return'])
         normalized_return = np.mean(test_dict['normalized_test_return'])
@@ -134,6 +152,9 @@ def _log(config, training_step, log_data, model, replay_buffer, lr, shared_stora
         summary_writer.add_scalar('{}/value_loss'.format(tag), value_loss, training_step)
         summary_writer.add_scalar('{}/value_prefix_loss'.format(tag), value_prefix_loss, training_step)
         summary_writer.add_scalar('{}/consistency_loss'.format(tag), consistency_loss, training_step)
+        summary_writer.add_scalar(
+            "{}/reconstruction_loss".format(tag), reconstruction_loss, training_step
+        )
         summary_writer.add_scalar('{}/episodes_collected'.format(tag), replay_episodes_collected,
                                   training_step)
         summary_writer.add_scalar('{}/replay_buffer_length'.format(tag), replay_buffer_size, training_step)

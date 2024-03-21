@@ -133,6 +133,54 @@ class DownSample(nn.Module):
         return x
 
 
+class UpSample(torch.nn.Module):
+    def __init__(self, in_channels, out_channels):
+        super().__init__()
+        mid_channels = (in_channels + out_channels) // 2
+        self.features = torch.nn.Sequential(
+            torch.nn.ConvTranspose2d(
+                in_channels,
+                mid_channels,
+                kernel_size=5,
+                stride=2,
+                padding=2,
+                output_padding=1,
+            ),
+            torch.nn.ReLU(),
+            torch.nn.ConvTranspose2d(
+                mid_channels,
+                mid_channels,
+                kernel_size=5,
+                stride=2,
+                padding=2,
+                output_padding=1,
+            ),
+            torch.nn.ReLU(),
+            torch.nn.ConvTranspose2d(
+                mid_channels,
+                mid_channels,
+                kernel_size=5,
+                stride=2,
+                padding=2,
+                output_padding=1,
+            ),
+            torch.nn.ReLU(),
+            torch.nn.ConvTranspose2d(
+                mid_channels,
+                out_channels,
+                kernel_size=5,
+                stride=2,
+                padding=2,
+                output_padding=1,
+            ),
+            torch.nn.ReLU(),
+        )
+
+    def forward(self, x):
+        x = self.features(x)
+        return x
+
+
 # Encode the observations into hidden states
 class RepresentationNetwork(nn.Module):
     def __init__(
@@ -189,6 +237,44 @@ class RepresentationNetwork(nn.Module):
             mean += np.abs(param.detach().cpu().numpy().reshape(-1)).tolist()
         mean = sum(mean) / len(mean)
         return mean
+
+
+# Decode hidden states into original observations
+class ReconstructionNetwork(torch.nn.Module):
+    def __init__(
+        self,
+        observation_shape,
+        num_blocks,
+        num_channels,
+        downsample,
+    ):
+        """Reconstruction network
+
+        Args:
+            observation_shape (tuple or list): shape of env observation
+            num_blocks (int): number of residual blocks
+            num_channels (int): number of channels in hidden state
+            downsample (bool): true if observations are downsampled by representation network
+        """
+        super().__init__()
+        self.downsample = downsample
+        self.resblocks = torch.nn.ModuleList(
+            [ResidualBlock(num_channels) for _ in range(num_blocks)]
+        )
+        self.bn = torch.nn.BatchNorm2d(num_channels)
+        self.conv = conv3x3(num_channels, observation_shape[0])
+
+        if downsample:
+            self.upsample_net = UpSample(num_channels, observation_shape[0])
+
+    def forward(self, x):
+        for block in self.resblocks:
+            x = block(x)
+        x = self.bn(x)
+        x = self.conv(x)
+        if self.downsample:
+            x = self.upsample_net(x)
+        return x
 
 
 # Predict next hidden states given current states and actions
@@ -487,6 +573,13 @@ class EfficientZeroNet(BaseNet):
             momentum=bn_mt,
         )
 
+        self.reconstruction_network = ReconstructionNetwork(
+            observation_shape,
+            num_blocks,
+            num_channels,
+            downsample,
+        )
+
         self.dynamics_network = DynamicsNetwork(
             num_blocks,
             num_channels + 1,
@@ -548,6 +641,10 @@ class EfficientZeroNet(BaseNet):
             encoded_state_normalized = renormalize(encoded_state)
             return encoded_state_normalized
 
+    def reconstruction(self, encoded_state):
+        reconstructed_observation = self.reconstruction_network(encoded_state)
+        return reconstructed_observation
+
     def dynamics(self, encoded_state, reward_hidden, action):
         # Stack encoded_state with a game specific one hot encoded action
         action_one_hot = (
@@ -592,4 +689,3 @@ class EfficientZeroNet(BaseNet):
             return proj
         else:
             return proj.detach()
-
