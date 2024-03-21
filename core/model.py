@@ -13,6 +13,7 @@ class NetworkOutput(typing.NamedTuple):
     value_prefix: float
     policy_logits: List[float]
     hidden_state: List[float]
+    reconstructed_state: List[float]
     reward_hidden: object
 
 
@@ -75,6 +76,9 @@ class BaseNet(nn.Module):
     def representation(self, obs_history):
         raise NotImplementedError
 
+    def reconstruction(self, state):
+        raise NotImplementedError
+
     def dynamics(self, state, reward_hidden, action):
         raise NotImplementedError
 
@@ -82,6 +86,7 @@ class BaseNet(nn.Module):
         num = obs.size(0)
 
         state = self.representation(obs)
+        reconstructed_obs = self.reconstruction(state)
         actor_logit, value = self.prediction(state)
 
         if not self.training:
@@ -96,10 +101,11 @@ class BaseNet(nn.Module):
             # zero initialization for reward (value prefix) hidden states
             reward_hidden = (torch.zeros(1, num, self.lstm_hidden_size).to('cuda'), torch.zeros(1, num, self.lstm_hidden_size).to('cuda'))
 
-        return NetworkOutput(value, [0. for _ in range(num)], actor_logit, state, reward_hidden)
+        return NetworkOutput(value, [0. for _ in range(num)], actor_logit, state, reconstructed_obs, reward_hidden)
 
     def recurrent_inference(self, hidden_state, reward_hidden, action) -> NetworkOutput:
         state, reward_hidden, value_prefix = self.dynamics(hidden_state, reward_hidden, action)
+        reconstructed_obs = self.reconstruction(state)
         actor_logit, value = self.prediction(state)
 
         if not self.training:
@@ -110,7 +116,7 @@ class BaseNet(nn.Module):
             reward_hidden = (reward_hidden[0].detach().cpu().numpy(), reward_hidden[1].detach().cpu().numpy())
             actor_logit = actor_logit.detach().cpu().numpy()
 
-        return NetworkOutput(value, value_prefix, actor_logit, state, reward_hidden)
+        return NetworkOutput(value, value_prefix, actor_logit, state, reconstructed_obs, reward_hidden)
 
     def get_weights(self):
         return {k: v.cpu() for k, v in self.state_dict().items()}

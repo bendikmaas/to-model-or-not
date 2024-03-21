@@ -116,9 +116,23 @@ def update_weights(model, batch, optimizer, replay_buffer, config, scaler, vis_r
 
     if config.amp_type == 'torch_amp':
         with autocast():
-            value, _, policy_logits, hidden_state, reward_hidden = model.initial_inference(obs_batch)
+            network_output = model.initial_inference(obs_batch)
+
+            value = network_output.value
+            policy_logits = network_output.policy_logits
+            hidden_state = network_output.hidden_state
+            reconstructed_state = network_output.reconstructed_state
+            reward_hidden = network_output.reward_hidden
+            # value, _, policy_logits, hidden_state, reward_hidden = model.initial_inference(obs_batch)
     else:
-        value, _, policy_logits, hidden_state, reward_hidden = model.initial_inference(obs_batch)
+        network_output = model.initial_inference(obs_batch)
+
+        value = network_output.value
+        policy_logits = network_output.policy_logits
+        hidden_state = network_output.hidden_state
+        reconstructed_state = network_output.reconstructed_state
+        reward_hidden = network_output.reward_hidden
+        # value, _, policy_logits, hidden_state, reward_hidden = model.initial_inference(obs_batch)
     scaled_value = config.inverse_value_transform(value)
 
     if vis_result:
@@ -138,6 +152,15 @@ def update_weights(model, batch, optimizer, replay_buffer, config, scaler, vis_r
     policy_loss = -(torch.log_softmax(policy_logits, dim=1) * target_policy[:, 0]).sum(1)
     value_prefix_loss = torch.zeros(batch_size, device=config.device)
     consistency_loss = torch.zeros(batch_size, device=config.device)
+    if config.reconstruction_coeff > 0:
+        pixel_wise_loss = torch.square(reconstructed_state - obs_batch).flatten(
+            start_dim=1
+        )
+        reconstruction_loss = (
+            pixel_wise_loss.mean(1) + torch.max(pixel_wise_loss, dim=1)[0]
+        )
+    else:
+        reconstruction_loss = torch.zeros(batch_size, device=config.device)
 
     target_value_prefix_cpu = target_value_prefix.detach().cpu()
     gradient_scale = 1 / config.num_unroll_steps
@@ -147,15 +170,32 @@ def update_weights(model, batch, optimizer, replay_buffer, config, scaler, vis_r
         with autocast():
             for step_i in range(config.num_unroll_steps):
                 # unroll with the dynamics function
-                value, value_prefix, policy_logits, hidden_state, reward_hidden = model.recurrent_inference(hidden_state, reward_hidden, action_batch[:, step_i])
+                network_output = model.recurrent_inference(
+                    hidden_state, reward_hidden, action_batch[:, step_i]
+                )
 
+                value = network_output.value
+                value_prefix = network_output.value_prefix
+                policy_logits = network_output.policy_logits
+                hidden_state = network_output.hidden_state
+                reconstructed_state = network_output.reconstructed_state
+                reward_hidden = network_output.reward_hidden
+                # value, value_prefix, policy_logits, hidden_state, reward_hidden = model.recurrent_inference(hidden_state, reward_hidden, action_batch[:, step_i])
+
+                # find the correct slice of the target observation batch
                 beg_index = config.num_image_channels * step_i
                 end_index = config.num_image_channels * (step_i + config.stacked_observations)
 
                 # consistency loss
                 if config.consistency_coeff > 0:
+
                     # obtain the oracle hidden states from representation function
-                    _, _, _, presentation_state, _ = model.initial_inference(obs_target_batch[:, beg_index:end_index, :, :])
+                    network_output = model.initial_inference(
+                        obs_target_batch[:, beg_index:end_index, :, :]
+                    )
+                    presentation_state = network_output.hidden_state
+                    # _, _, _, presentation_state, _ = model.initial_inference(obs_target_batch[:, beg_index:end_index, :, :])
+
                     # no grad for the presentation_state branch
                     dynamic_proj = model.project(hidden_state, with_grad=True)
                     observation_proj = model.project(presentation_state, with_grad=False)
@@ -163,6 +203,16 @@ def update_weights(model, batch, optimizer, replay_buffer, config, scaler, vis_r
 
                     other_loss['consist_' + str(step_i + 1)] = temp_loss.mean().item()
                     consistency_loss += temp_loss
+
+                # reconstruction loss
+                if config.reconstructed_coeff > 0:
+                    pixel_wise_loss = torch.square(
+                        reconstructed_state
+                        - obs_target_batch[:, beg_index:end_index, :, :]
+                    ).flatten(start_dim=1)
+                    reconstruction_loss += (
+                        pixel_wise_loss.mean(1) + torch.max(pixel_wise_loss, dim=1)[0]
+                    )
 
                 policy_loss += -(torch.log_softmax(policy_logits, dim=1) * target_policy[:, step_i + 1]).sum(1)
                 value_loss += config.scalar_value_loss(value, target_value_phi[:, step_i + 1])
@@ -202,7 +252,17 @@ def update_weights(model, batch, optimizer, replay_buffer, config, scaler, vis_r
     else:
         for step_i in range(config.num_unroll_steps):
             # unroll with the dynamics function
-            value, value_prefix, policy_logits, hidden_state, reward_hidden = model.recurrent_inference(hidden_state, reward_hidden, action_batch[:, step_i])
+            network_output = model.recurrent_inference(
+                hidden_state, reward_hidden, action_batch[:, step_i]
+            )
+
+            value = network_output.value
+            value_prefix = network_output.value_prefix
+            policy_logits = network_output.policy_logits
+            hidden_state = network_output.hidden_state
+            reconstructed_state = network_output.reconstructed_state
+            reward_hidden = network_output.reward_hidden
+            # value, value_prefix, policy_logits, hidden_state, reward_hidden = model.recurrent_inference(hidden_state, reward_hidden, action_batch[:, step_i])
 
             beg_index = config.num_image_channels * step_i
             end_index = config.num_image_channels * (step_i + config.stacked_observations)
@@ -210,7 +270,12 @@ def update_weights(model, batch, optimizer, replay_buffer, config, scaler, vis_r
             # consistency loss
             if config.consistency_coeff > 0:
                 # obtain the oracle hidden states from representation function
-                _, _, _, presentation_state, _ = model.initial_inference(obs_target_batch[:, beg_index:end_index, :, :])
+                network_output = model.initial_inference(
+                    obs_target_batch[:, beg_index:end_index, :, :]
+                )
+                presentation_state = network_output.hidden_state
+                # _, _, _, presentation_state, _ = model.initial_inference(obs_target_batch[:, beg_index:end_index, :, :])
+
                 # no grad for the presentation_state branch
                 dynamic_proj = model.project(hidden_state, with_grad=True)
                 observation_proj = model.project(presentation_state, with_grad=False)
@@ -218,6 +283,15 @@ def update_weights(model, batch, optimizer, replay_buffer, config, scaler, vis_r
 
                 other_loss['consist_' + str(step_i + 1)] = temp_loss.mean().item()
                 consistency_loss += temp_loss
+
+            # reconstruction loss
+            if config.reconstructed_coeff > 0:
+                pixel_wise_loss = torch.square(
+                    reconstructed_state - obs_target_batch[:, beg_index:end_index, :, :]
+                ).flatten(start_dim=1)
+                reconstruction_loss += (
+                    pixel_wise_loss.mean(1) + torch.max(pixel_wise_loss, dim=1)[0]
+                )
 
             policy_loss += -(torch.log_softmax(policy_logits, dim=1) * target_policy[:, step_i + 1]).sum(1)
             value_loss += config.scalar_value_loss(value, target_value_phi[:, step_i + 1])
@@ -256,8 +330,13 @@ def update_weights(model, batch, optimizer, replay_buffer, config, scaler, vis_r
                     other_loss[key + '_0'] = metric_loss(scaled_value_prefixs_cpu[value_prefix_indices_0], target_value_prefix_base[value_prefix_indices_0])
     # ----------------------------------------------------------------------------------
     # weighted loss with masks (some invalid states which are out of trajectory.)
-    loss = (config.consistency_coeff * consistency_loss + config.policy_loss_coeff * policy_loss +
-            config.value_loss_coeff * value_loss + config.reward_loss_coeff * value_prefix_loss)
+    loss = (
+        config.consistency_coeff * consistency_loss
+        + config.policy_loss_coeff * policy_loss
+        + config.reconstructed_coeff * reconstruction_loss
+        + config.value_loss_coeff * value_loss
+        + config.reward_loss_coeff * value_prefix_loss
+    )
     weighted_loss = (weights * loss).mean()
 
     # backward
@@ -289,8 +368,18 @@ def update_weights(model, batch, optimizer, replay_buffer, config, scaler, vis_r
     replay_buffer.update_priorities.remote(indices, new_priority, make_time)
 
     # packing data for logging
-    loss_data = (total_loss.item(), weighted_loss.item(), loss.mean().item(), 0, policy_loss.mean().item(),
-                 value_prefix_loss.mean().item(), value_loss.mean().item(), consistency_loss.mean())
+    loss_data = (
+        total_loss.item(),
+        weighted_loss.item(),
+        loss.mean().item(),
+        0,
+        policy_loss.mean().item(),
+        value_prefix_loss.mean().item(),
+        value_loss.mean().item(),
+        consistency_loss.mean(),
+        reconstruction_loss.mean(),
+    )
+
     if vis_result:
         reward_w_dist, representation_mean, dynamic_mean, reward_mean = model.get_params_mean()
         other_dist['reward_weights_dist'] = reward_w_dist
