@@ -1,33 +1,38 @@
 import gymnasium as gym
-from minigrid.wrappers import ImgObsWrapper
+from minigrid.core.constants import OBJECT_TO_IDX
+from minigrid.wrappers import FullyObsWrapper, RGBImgPartialObsWrapper, RGBImgObsWrapper
 import torch
 
+from .model import EfficientZeroNet
+from .env_wrapper import (
+    OneHotObjEncodingWrapper,
+    MinigridWrapper,
+    DeterministicLavaGap,
+)
 from core.dataset import Transforms
 from core.config import BaseConfig
-from .model import EfficientZeroNet
-from .env_wrapper import OneHotObjEncodingWrapper, MinigridWrapper, DeterministicLavaGap
 
 games = {
-    "MiniGrid-LavaGapS5-v0": {"return_bounds": (0., 0.988),
-                              "grid_size": 5,
-                              "encoded_objects": ["unseen", "wall",
-                                                  "empty", "goal", "lava", "agent"]
-                              },
-    "MiniGrid-LavaGapS6-v0": {"return_bounds": (0., 0.982),
-                              "grid_size": 6,
-                              "encoded_objects": ["unseen", "wall",
-                                                  "empty", "goal", "lava", "agent"]
-                              },
-    "MiniGrid-LavaGapS7-v0": {"return_bounds": (0., 0.97625),
-                              "grid_size": 7,
-                              "encoded_objects": ["unseen", "wall",
-                                                  "empty", "goal", "lava", "agent"]
-                              },
-    "MiniGrid-Empty-5x5-v0": {"return_bounds": (0., 0.988),
-                              "grid_size": 5,
-                              "encoded_objects": ["unseen", "wall",
-                                                  "empty", "goal", "agent"]
-                              }
+    "MiniGrid-LavaGapS5-v0": {
+        "return_bounds": (0.0, 0.988),
+        "grid_size": 5,
+        "encoded_objects": ["unseen", "wall", "empty", "goal", "lava", "agent"],
+    },
+    "MiniGrid-LavaGapS6-v0": {
+        "return_bounds": (0.0, 0.982),
+        "grid_size": 6,
+        "encoded_objects": ["unseen", "wall", "empty", "goal", "lava", "agent"],
+    },
+    "MiniGrid-LavaGapS7-v0": {
+        "return_bounds": (0.0, 0.97625),
+        "grid_size": 7,
+        "encoded_objects": ["wall", "empty", "goal", "lava", "agent"],
+    },
+    "MiniGrid-Empty-5x5-v0": {
+        "return_bounds": (0.0, 0.988),
+        "grid_size": 5,
+        "encoded_objects": ["unseen", "wall", "empty", "goal", "agent"],
+    },
 }
 
 
@@ -98,16 +103,17 @@ class MinigridConfig(BaseConfig):
         self.reduced_channels_reward = 16  # x36 Number of channels in reward head
         self.reduced_channels_value = 16  # x36 Number of channels in value head
         self.reduced_channels_policy = 16  # x36 Number of channels in policy head
-        # Define the hidden layers in the reward head of the dynamic network
+
+        # Define the hidden layers in the heads of the value functions
         self.resnet_fc_reward_layers = [32]
-        # Define the hidden layers in the value head of the prediction network
         self.resnet_fc_value_layers = [32]
-        # Define the hidden layers in the policy head of the prediction network
         self.resnet_fc_policy_layers = [32]
+
         # Downsample observations before representation network (See paper appendix Network Architecture)
-        self.downsample = False
+        self.downsample = self.image_based
 
         # Minigrid-specific parameters
+        self.agent_view = False
         self.agent_view_size = 3
         self.train_proportion = .3
 
@@ -123,21 +129,82 @@ class MinigridConfig(BaseConfig):
             return 1.0
 
     def set_game(self, env_name):
-        assert env_name in list(games.keys())
         self.env_name = env_name
-        self.grid_size = games[env_name]["grid_size"]
-        self.encoded_objects = games[env_name]["encoded_objects"]
-        self.num_image_channels = len(self.encoded_objects)
-        self.num_train_levels = int(((self.grid_size - 2)**3)*(self.grid_size-4) * self.train_proportion)
 
-        obs_shape = (self.num_image_channels,
-                     self.agent_view_size, self.agent_view_size)
+        # Initialize environment to fetch variables
+        env = gym.make(env_name)
+        env.reset()
+        grid = env.unwrapped.grid
+
+        # Get the dimensions of the grid
+        self.grid_height = grid.height
+        self.grid_width = grid.width
+        # self.grid_size = games[env_name]["grid_size"]
+
+        # Get the objects of the grid, if not image-based representation
+        if self.image_based:
+            self.objects_to_encode = []
+            self.num_image_channels = 1 if self.gray_scale else 3
+        else:
+            objects = set()
+            objects.add("agent")
+            for col in range(grid.width):
+                for row in range(grid.height):
+                    obj = grid.get(col, row)
+                    if obj is None:
+                        objects.add("empty")
+                    else:
+                        objects.add(obj.type)
+            if self.agent_view:
+                objects.add("unseen")
+
+            self.objects_to_encode = sorted(
+                list(objects), key=lambda obj: OBJECT_TO_IDX[obj]
+            )
+            self.num_image_channels = len(self.objects_to_encode)
+
+        # Determine the observation size
+        if self.agent_view:
+            if self.image_based:
+                env = RGBImgPartialObsWrapper(env)
+                obs_shape = (
+                    self.num_image_channels,
+                    (self.agent_view_size * 2 + 1) * env.tile_size,
+                    (self.agent_view_size * 2 + 1) * env.tile_size,
+                )
+            else:
+                obs_shape = (
+                    self.num_image_channels,
+                    self.agent_view_size * 2 + 1,
+                    self.agent_view_size * 2 + 1,
+                )
+        else:
+            if self.image_based:
+                env = RGBImgObsWrapper(env)
+                obs_shape = (
+                    self.num_image_channels,
+                    self.grid_height * env.tile_size,
+                    self.grid_width * env.tile_size,
+                )
+            else:
+                obs_shape = (self.num_image_channels, self.grid_height, self.grid_width)
         self.obs_shape = (
-            obs_shape[0] * self.stacked_observations, obs_shape[1], obs_shape[2])
+            obs_shape[0] * self.stacked_observations,
+            obs_shape[1],
+            obs_shape[2],
+        )
 
-        game = self.new_game()
-        self.action_space_size = 3
+        # TODO: Make this calculation more general, if possible (could have a simple lookup table)
+        self.num_train_levels = int(
+            ((self.grid_height - 2) ** 3)
+            * (self.grid_width - 4)
+            * self.train_proportion
+        )
+        self.action_space_size = 3 if self.agent_view else 4
         self.min_return, self.max_return = games[env_name]["return_bounds"]
+
+        # TODO: is this necessary?
+        self.new_game()
 
     def get_uniform_network(self):
         return EfficientZeroNet(
@@ -172,18 +239,24 @@ class MinigridConfig(BaseConfig):
 
         # Base environment
         if test or final_test:
-            env = gym.make(self.env_name,
-                           render_mode=render_mode,
-                           size=self.grid_size,
-                           agent_view_size=self.agent_view_size,
-                           max_steps=self.max_moves
-                           )
+            env = gym.make(
+                self.env_name,
+                render_mode=render_mode,
+                agent_view_size=self.agent_view_size,
+                max_steps=self.max_moves,
+            )
         else:
-            env = DeterministicLavaGap(seed, self.grid_size, self.max_moves, self.num_train_levels,
-                                       agent_view_size=self.agent_view_size, render_mode=render_mode)
+            env = DeterministicLavaGap(
+                seed,
+                self.grid_size,
+                self.max_moves,
+                self.num_train_levels,
+                agent_view_size=self.agent_view_size,
+                render_mode=render_mode,
+            )
 
         # Wrap in video recorder
-        if record_video:
+        if record_video and save_path is not None:
             from gymnasium.wrappers.record_video import RecordVideo
             if final_test:
                 name_prefix = "final_test"
@@ -191,10 +264,15 @@ class MinigridConfig(BaseConfig):
             else:
                 name_prefix = "test" if test else "train"
                 interval = self.recording_interval if recording_interval is None else recording_interval
-            env = RecordVideo(env,
-                              video_folder=save_path,
-                              episode_trigger=lambda episode_id: episode_id % interval == 0,
-                              name_prefix=name_prefix)
+            env = RecordVideo(
+                env,
+                video_folder=str(save_path),
+                episode_trigger=lambda episode_id: episode_id % interval == 0,
+                name_prefix=name_prefix,
+            )
+
+        # Discard agent-centric view
+        env = FullyObsWrapper(env)
 
         # Wrap in one-hot-encoding-wrapper
         env = OneHotObjEncodingWrapper(env, objects=self.encoded_objects)
@@ -214,6 +292,5 @@ class MinigridConfig(BaseConfig):
 
     def transform(self, images):
         return self.transforms.transform(images)
-
 
 game_config = MinigridConfig()
