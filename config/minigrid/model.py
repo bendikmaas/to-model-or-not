@@ -57,13 +57,34 @@ def conv3x3(in_channels, out_channels, stride=1):
 
 # Residual block
 class ResidualBlock(nn.Module):
-    def __init__(self, in_channels, out_channels, downsample=None, stride=1, momentum=0.1):
+
+    def __init__(
+        self,
+        in_channels,
+        out_channels,
+        downsample=None,
+        upsample=None,
+        stride=1,
+        momentum=0.1,
+    ):
         super().__init__()
-        self.conv1 = conv3x3(in_channels, out_channels, stride)
+        if upsample is not None:
+            self.conv1 = nn.ConvTranspose2d(
+                in_channels,
+                out_channels,
+                kernel_size=3,
+                stride=stride,
+                padding=1,
+                output_padding=1,
+                bias=False,
+            )
+        else:
+            self.conv1 = conv3x3(in_channels, out_channels, stride)
         self.bn1 = nn.BatchNorm2d(out_channels, momentum=momentum)
         self.conv2 = conv3x3(out_channels, out_channels)
         self.bn2 = nn.BatchNorm2d(out_channels, momentum=momentum)
         self.downsample = downsample
+        self.upsample = upsample
 
     def forward(self, x):
         identity = x
@@ -77,6 +98,9 @@ class ResidualBlock(nn.Module):
 
         if self.downsample is not None:
             identity = self.downsample(x)
+
+        if self.upsample is not None:
+            identity = self.upsample(x)
 
         out += identity
         out = nn.functional.relu(out)
@@ -118,66 +142,101 @@ class DownSample(nn.Module):
         self.pooling2 = nn.AvgPool2d(kernel_size=3, stride=2, padding=1)
 
     def forward(self, x):
+        # Downsample dimensions by factor of 2, increase channels to half of expected output
         x = self.conv1(x)
         x = self.bn1(x)
         x = nn.functional.relu(x)
         for block in self.resblocks1:
             x = block(x)
+
+        # Downsample dimensions by factor of 2, increase dimensions to expected output
         x = self.downsample_block(x)
         for block in self.resblocks2:
             x = block(x)
+
+        # Downsample the spatial dimensions by a factor of 2
         x = self.pooling1(x)
         for block in self.resblocks3:
             x = block(x)
+
+        # Downsample the spatial dimensions by a factor of 2
         x = self.pooling2(x)
+
         return x
 
 
-class UpSample(torch.nn.Module):
-    def __init__(self, in_channels, out_channels):
+class UpSample(nn.Module):
+    def __init__(self, in_channels, out_channels, momentum=0.1):
         super().__init__()
-        mid_channels = (in_channels + out_channels) // 2
-        self.features = torch.nn.Sequential(
-            torch.nn.ConvTranspose2d(
-                in_channels,
-                mid_channels,
-                kernel_size=5,
-                stride=2,
-                padding=2,
-                output_padding=1,
-            ),
-            torch.nn.ReLU(),
-            torch.nn.ConvTranspose2d(
-                mid_channels,
-                mid_channels,
-                kernel_size=5,
-                stride=2,
-                padding=2,
-                output_padding=1,
-            ),
-            torch.nn.ReLU(),
-            torch.nn.ConvTranspose2d(
-                mid_channels,
-                mid_channels,
-                kernel_size=5,
-                stride=2,
-                padding=2,
-                output_padding=1,
-            ),
-            torch.nn.ReLU(),
-            torch.nn.ConvTranspose2d(
-                mid_channels,
-                out_channels,
-                kernel_size=5,
-                stride=2,
-                padding=2,
-                output_padding=1,
-            ),
-            torch.nn.ReLU(),
+        self.upsample1 = nn.Upsample(scale_factor=2, mode="nearest")
+        self.resblocks1 = nn.ModuleList(
+            [
+                ResidualBlock(in_channels, in_channels, momentum=momentum)
+                for _ in range(1)
+            ]
+        )
+        self.upsample2 = nn.Upsample(scale_factor=2, mode="nearest")
+        self.resblocks2 = nn.ModuleList(
+            [
+                ResidualBlock(in_channels, in_channels, momentum=momentum)
+                for _ in range(1)
+            ]
+        )
+        self.convT1 = nn.ConvTranspose2d(
+            in_channels,
+            in_channels // 2,
+            kernel_size=3,
+            stride=2,
+            padding=1,
+            output_padding=1,
+            bias=False,
+        )
+        self.upsample_block = ResidualBlock(
+            in_channels,
+            in_channels // 2,
+            momentum=momentum,
+            stride=2,
+            upsample=self.convT1,
+        )
+        self.resblocks3 = nn.ModuleList(
+            [
+                ResidualBlock(in_channels // 2, in_channels // 2, momentum=momentum)
+                for _ in range(1)
+            ]
         )
 
+        self.convT2 = nn.ConvTranspose2d(
+            in_channels // 2,
+            out_channels,
+            kernel_size=3,
+            stride=2,
+            padding=1,
+            output_padding=1,
+            bias=False,
+        )
+        self.bn1 = nn.BatchNorm2d(out_channels, momentum=momentum)
+
     def forward(self, x):
-        x = self.features(x)
+        # Upsample the spatial dimensions with a factor of 2
+        x = self.upsample1(x)
+        for block in self.resblocks1:
+            x = block(x)
+
+        # Upsampling the spatial dimensions with a factor of 2
+        x = self.upsample2(x)
+        for block in self.resblocks2:
+            x = block(x)
+
+        # Upsampling the spatial dimensions with a factor of 2 and decreasing the channel dimensions to half
+        x = self.upsample_block(x)
+        for block in self.resblocks3:
+            x = block(x)
+
+        # Upsampling the spatial dimensions with a factor of 2 and decreasing the channels to the original output
+        x = self.convT2(x)
+        x = self.bn1(x)
+        x = nn.functional.relu(x)
+
         return x
 
 
@@ -260,10 +319,13 @@ class ReconstructionNetwork(torch.nn.Module):
         super().__init__()
         self.downsample = downsample
         self.resblocks = torch.nn.ModuleList(
-            [ResidualBlock(num_channels, num_channels, momentum=momentum) for _ in range(num_blocks)]
+            [
+                ResidualBlock(num_channels, num_channels, momentum=momentum)
+                for _ in range(num_blocks)
+            ]
         )
-        self.bn = torch.nn.BatchNorm2d(num_channels, momentum=momentum)
         self.conv = conv3x3(num_channels, observation_shape[0])
+        self.bn = torch.nn.BatchNorm2d(observation_shape[0], momentum=momentum)
 
         if downsample:
             self.upsample_net = UpSample(num_channels, observation_shape[0])
@@ -271,10 +333,12 @@ class ReconstructionNetwork(torch.nn.Module):
     def forward(self, x):
         for block in self.resblocks:
             x = block(x)
-        x = self.bn(x)
-        x = self.conv(x)
         if self.downsample:
             x = self.upsample_net(x)
+        else:
+            x = self.conv(x)
+            x = self.bn(x)
+            x = nn.functional.relu(x)
         return x
 
 
