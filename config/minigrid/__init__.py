@@ -1,13 +1,19 @@
 import gymnasium as gym
 from minigrid.core.constants import OBJECT_TO_IDX
-from minigrid.wrappers import FullyObsWrapper, RGBImgPartialObsWrapper, RGBImgObsWrapper
+from minigrid.wrappers import (
+    FullyObsWrapper,
+    RGBImgPartialObsWrapper,
+    RGBImgObsWrapper,
+    ReseedWrapper,
+)
 import torch
 
 from .model import EfficientZeroNet
 from .env_wrapper import (
     OneHotObjEncodingWrapper,
     MinigridWrapper,
-    DeterministicLavaGap,
+    PartialOneHotObjEncodingWrapper,
+    WASDMinigridActionWrapper,
 )
 from core.dataset import Transforms
 from core.config import BaseConfig
@@ -87,7 +93,8 @@ class MinigridConfig(BaseConfig):
             proj_hid=1024,
             proj_out=1024,
             pred_hid=512,
-            pred_out=1024,)
+            pred_out=1024,
+        )
         self.discount **= self.frame_skip
         self.max_moves //= self.frame_skip
         self.test_max_moves //= self.frame_skip
@@ -115,7 +122,7 @@ class MinigridConfig(BaseConfig):
         # Minigrid-specific parameters
         self.agent_view = False
         self.agent_view_size = 3
-        self.train_proportion = .3
+        self.num_train_levels = 3
 
     def visit_softmax_temperature_fn(self, trained_steps):
         if self.change_temperature:
@@ -169,42 +176,38 @@ class MinigridConfig(BaseConfig):
                 env = RGBImgPartialObsWrapper(env)
                 obs_shape = (
                     self.num_image_channels,
-                    (self.agent_view_size * 2 + 1) * env.tile_size,
-                    (self.agent_view_size * 2 + 1) * env.tile_size,
+                    self.agent_view_size * env.tile_size,
+                    self.agent_view_size * env.tile_size,
                 )
             else:
                 obs_shape = (
                     self.num_image_channels,
-                    self.agent_view_size * 2 + 1,
-                    self.agent_view_size * 2 + 1,
+                    self.agent_view_size,
+                    self.agent_view_size,
                 )
         else:
             if self.image_based:
                 env = RGBImgObsWrapper(env)
                 obs_shape = (
                     self.num_image_channels,
-                    self.grid_height * env.tile_size,
                     self.grid_width * env.tile_size,
+                    self.grid_height * env.tile_size,
                 )
             else:
-                obs_shape = (self.num_image_channels, self.grid_height, self.grid_width)
+                obs_shape = (
+                    self.num_image_channels,
+                    self.grid_width,
+                    self.grid_height,
+                )
         self.obs_shape = (
             obs_shape[0] * self.stacked_observations,
             obs_shape[1],
             obs_shape[2],
         )
 
-        # TODO: Make this calculation more general, if possible (could have a simple lookup table)
-        self.num_train_levels = int(
-            ((self.grid_height - 2) ** 3)
-            * (self.grid_width - 4)
-            * self.train_proportion
-        )
         self.action_space_size = 3 if self.agent_view else 4
         self.min_return, self.max_return = games[env_name]["return_bounds"]
-
-        # TODO: is this necessary?
-        self.new_game()
+        self.num_levels_per_actor = self.num_train_levels // self.num_actors
 
     def get_uniform_network(self):
         return EfficientZeroNet(
@@ -238,22 +241,12 @@ class MinigridConfig(BaseConfig):
             seed = self.seed
 
         # Base environment
-        if test or final_test:
-            env = gym.make(
-                self.env_name,
-                render_mode=render_mode,
-                agent_view_size=self.agent_view_size,
-                max_steps=self.max_moves,
-            )
-        else:
-            env = DeterministicLavaGap(
-                seed,
-                self.grid_size,
-                self.max_moves,
-                self.num_train_levels,
-                agent_view_size=self.agent_view_size,
-                render_mode=render_mode,
-            )
+        env = gym.make(
+            self.env_name,
+            render_mode=render_mode,
+            agent_view_size=self.agent_view_size,
+            max_episode_steps=self.max_moves,
+        )
 
         # Wrap in video recorder
         if record_video and save_path is not None:
@@ -271,13 +264,32 @@ class MinigridConfig(BaseConfig):
                 name_prefix=name_prefix,
             )
 
-        # Discard agent-centric view
-        env = FullyObsWrapper(env)
+        # Wrap according to configuration
+        if self.agent_view:
+            if self.image_based:
+                env = RGBImgPartialObsWrapper(env)
+            else:
+                env = PartialOneHotObjEncodingWrapper(
+                    env, objects=self.objects_to_encode
+                )
+        else:
+            if self.image_based:
+                env = RGBImgObsWrapper(env)
+            else:
+                env = WASDMinigridActionWrapper(env)
+                env = FullyObsWrapper(env)
+                env = OneHotObjEncodingWrapper(env, objects=self.objects_to_encode)
 
-        # Wrap in one-hot-encoding-wrapper
-        env = OneHotObjEncodingWrapper(env, objects=self.encoded_objects)
+        # Wrap in reseed wrapper if training to only use a fixed subset of levels
+        if not (test or final_test):
+            # Asynchronize the seeds for each actor
+            seed_idx = actor_rank * self.num_levels_per_actor
+            seeds = list(range(seed, seed + self.num_train_levels))
+            env = ReseedWrapper(env, seeds=seeds, seed_idx=seed_idx)
 
-        return MinigridWrapper(env, discount=self.discount, cvt_string=self.cvt_string)
+        return MinigridWrapper(
+            env, self.image_based, discount=self.discount, cvt_string=self.cvt_string
+        )
 
     def scalar_reward_loss(self, prediction, target):
         return -(torch.log_softmax(prediction, dim=1) * target).sum(1)

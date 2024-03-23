@@ -1,23 +1,39 @@
+from enum import IntEnum
+from typing import Any, SupportsFloat, Union
 import numpy as np
 from core.game import Game
 from core.utils import arr_to_str
 
-import random
 
-import gymnasium as gym
-from gymnasium import spaces
-from gymnasium.utils.seeding import np_random
+from gymnasium import Env, spaces
+from gymnasium.core import Wrapper
 
 from minigrid.core.constants import OBJECT_TO_IDX, IDX_TO_OBJECT
-from minigrid.core.grid import Grid
-from minigrid.core.mission import MissionSpace
-from minigrid.core.world_object import Goal, Lava
-from minigrid.envs import LavaGapEnv
+from minigrid.core.world_object import Goal
 from minigrid.wrappers import ObservationWrapper, ImgObsWrapper
 
 
+class DirectActions(IntEnum):
+    # Move right, down, left or up
+    right = 0
+    down = 1
+    left = 2
+    up = 3
+
+    # Pick up an object
+    pickup = 4
+    # Drop an object
+    drop = 5
+    # Toggle/activate an object
+    toggle = 6
+
+    # Done completing task
+    done = 7
+
+
 class MinigridWrapper(Game):
-    def __init__(self, env, discount: float, cvt_string=True):
+
+    def __init__(self, env, image_based, discount: float, cvt_string=True):
         """Minigrid Wrapper
         Parameters
         ----------
@@ -30,6 +46,8 @@ class MinigridWrapper(Game):
         """
         super().__init__(env, env.action_space.n, discount)
         self.env = ImgObsWrapper(self.env)
+
+        self.image_based = image_based
         self.cvt_string = cvt_string
 
     def legal_actions(self):
@@ -39,6 +57,10 @@ class MinigridWrapper(Game):
         observation, reward, terminated, truncated, info = self.env.step(
             action)
         observation = observation.astype(np.uint8)
+
+        if self.image_based:
+            # Convert from HWC to WHC
+            observation = np.transpose(observation, (1, 0, 2))
 
         done = terminated or truncated
 
@@ -51,6 +73,10 @@ class MinigridWrapper(Game):
         (observation, _) = self.env.reset(**kwargs)
         observation = observation.astype(np.uint8)
 
+        if self.image_based:
+            # Convert from HWC to WHC
+            observation = np.transpose(observation, (1, 0, 2))
+
         if self.cvt_string:
             observation = arr_to_str(observation)
 
@@ -60,7 +86,7 @@ class MinigridWrapper(Game):
         self.env.close()
 
 
-class OneHotObjEncodingWrapper(ObservationWrapper):
+class PartialOneHotObjEncodingWrapper(ObservationWrapper):
     """
     Wrapper to get a one-hot encoding of the objects that are partially observable
     by the agent.
@@ -84,14 +110,14 @@ class OneHotObjEncodingWrapper(ObservationWrapper):
 
         obs_shape = env.observation_space["image"].shape
         new_image_space = spaces.Box(
-            low=0, high=255, shape=(obs_shape[0], obs_shape[1], num_bits), dtype="uint8"
+            low=0, high=1, shape=(obs_shape[0], obs_shape[1], num_bits), dtype="uint8"
         )
         self.observation_space = spaces.Dict(
             {**self.observation_space.spaces, "image": new_image_space}
         )
 
-    def observation(self, obs):
-        img = obs["image"]
+    def observation(self, observation):
+        img = observation["image"]
         out = np.zeros(
             self.observation_space.spaces["image"].shape, dtype="uint8")
 
@@ -108,60 +134,186 @@ class OneHotObjEncodingWrapper(ObservationWrapper):
                     obj = IDX_TO_OBJECT[obj_idx]
                     out[i, j, self.objects.index(obj) + 1] = 1
 
-        return {**obs, "image": out}
+        return {**observation, "image": out}
 
 
-class DeterministicLavaGap(LavaGapEnv):
-    def __init__(
-        self, seed, size, max_steps, num_train_levels, **kwargs
-    ):
-        super().__init__(size, max_steps=max_steps, **kwargs)
+class OneHotObjEncodingWrapper(ObservationWrapper):
+    """
+    Wrapper to get a one-hot encoding of the full grid irrespective of the view of the agent.
+    """
 
-        # Enumerate and store all possible gap positions
-        self.test_configurations = []
-        for start_pos in range(1, size - 1):
-            for goal_pos in range(1, size - 1):
-                for row in range(1, size - 1):
-                    for col in range(2, size - 2):
-                        self.test_configurations.append((start_pos, col, row, goal_pos))
+    def __init__(self, env, objects=list(OBJECT_TO_IDX.keys())):
+        """A wrapper that makes the image observation a one-hot encoding of a complete birds-eye view of the full grid.
 
-        self.num_train_levels = min(
-            num_train_levels, len(self.test_configurations))
+        Args:
+            env: The environment to apply the wrapper
+        """
+        super().__init__(env)
 
-        rng = random.Random(seed)
-        self.train_configurations = rng.sample(self.test_configurations, self.num_train_levels)
+        self.objects = objects
+        # Number of bits per cell / objects to encode
+        num_bits = len(objects)
 
-    def _gen_grid(self, width, height):
-        assert width >= 5 and height >= 5
-
-        # Create an empty grid
-        self.grid = Grid(width, height)
-
-        # Generate the surrounding walls
-        self.grid.wall_rect(0, 0, width, height)
-
-        # Sample a random level configuration
-        agent_row, gap_col, gap_row, goal_row = self._rand_elem(self.train_configurations)
-        
-        # Place the agent in the left-most column
-        self.agent_pos = np.array((1, agent_row))
-        self.agent_dir = 0
-
-        # Place a goal square in the bottom-right corner
-        self.goal_pos = np.array((width - 2, goal_row))
-        self.put_obj(Goal(), *self.goal_pos)
-
-        # Generate and store random gap positionn
-        self.gap_pos = np.array((gap_col, gap_row))
-
-        # Place the obstacle wall
-        self.grid.vert_wall(self.gap_pos[0], 1, height - 2, self.obstacle_type)
-
-        # Put a hole in the wall
-        self.grid.set(*self.gap_pos, None)
-
-        self.mission = (
-            "avoid the lava and get to the green goal square"
-            if self.obstacle_type == Lava
-            else "find the opening and get to the green goal square"
+        obs_shape = env.observation_space["image"].shape
+        new_image_space = spaces.Box(
+            low=0, high=1, shape=(obs_shape[0], obs_shape[1], num_bits), dtype=np.uint8
         )
+        self.observation_space = spaces.Dict(
+            {**self.observation_space.spaces, "image": new_image_space}
+        )
+
+    def observation(self, observation):
+        img = observation["image"]
+        out = np.zeros(self.observation_space.spaces["image"].shape, dtype="uint8")
+
+        # Determine the object at the agent's position
+        obj = self.grid.get(*self.agent_pos)
+        if obj is None:
+            out[self.agent_pos[0], self.agent_pos[1], self.objects.index("empty")] = 1
+        else:
+            out[self.agent_pos[0], self.agent_pos[1], self.objects.index(obj.type)] = 1
+
+        # Encode the rest of the grid
+        for i in range(img.shape[0]):
+            for j in range(img.shape[1]):
+                obj_idx = img[i, j, 0]
+                obj = IDX_TO_OBJECT[obj_idx]
+                out[i, j, self.objects.index(obj)] = 1
+
+        return {**observation, "image": out}
+
+
+class WASDMinigridActionWrapper(Wrapper):
+
+    def __init__(self, env: Env):
+        super().__init__(env)
+
+        # Action enumeration for Minigrid environments
+        self.minigrid_actions = self.unwrapped.actions
+
+        # Action enumeration for direct WASD control
+        self.actions = DirectActions
+
+        # Actions are discrete integer values
+        self.action_space = spaces.Discrete(len(self.actions))
+
+    def step(
+        self, action: Any
+    ) -> tuple[Any, SupportsFloat, bool, bool, dict[str, Any]]:
+
+        if action <= 3:
+
+            while not self.unwrapped.agent_dir == action:
+                if (
+                    self.unwrapped.agent_dir - action == 1
+                    or self.unwrapped.agent_dir - action == -3
+                ):
+                    super().step(self.minigrid_actions.left)
+                else:
+                    super().step(self.minigrid_actions.right)
+                self.unwrapped.step_count -= 1
+            action = self.minigrid_actions.forward
+        else:
+            action -= 1
+        return super().step(action)
+
+
+class RandomizedStartPosition(Wrapper):
+    """A wrapper that randomizes the agent's starting position in the environment."""
+
+    def __init__(
+        self,
+        env: Env,
+        topX=1,
+        topY=1,
+        spawn_box_width=0,
+        spawn_box_height=float("inf"),
+        rand_dir=False,
+    ):
+        """Randomize the agent's starting position in the environment.
+
+        Args:
+            env (Env): The environment to wrap
+            topX (int, optional): X-coordinate of spawn box. Defaults to 1.
+            topY (int, optional): Y-coordinate of spawn box. Defaults to 1.
+            spawn_box_width (int, optional): Width of spawn box. Defaults to 0.
+            spawn_box_height (_type_, optional): Height of spawn boox. Defaults to float("inf").
+            rand_dir (bool, optional): Randomize starting direction. Defaults to False.
+        """
+        super().__init__(env)
+
+        self.top = (topX, topY)
+
+        box_width = min(topX + spawn_box_width, self.env.unwrapped.width - topX - 1)
+        box_height = min(topY + spawn_box_height, self.env.unwrapped.height - topY - 1)
+        self.size = (box_width, box_height)
+        self.rand_dir = rand_dir
+
+    def reset(
+        self,
+        *,
+        seed: Union[int, None] = None,
+        options: Union[dict[str, Any], None] = None
+    ) -> tuple[Any, dict[str, Any]]:
+        super().reset(seed=seed)
+        self.env.unwrapped.place_agent(
+            top=self.top, size=self.size, rand_dir=self.rand_dir
+        )
+        obs = self.env.unwrapped.gen_obs()
+        return obs, {}
+
+
+class RandomizedGoalPosition(Wrapper):
+    """A wrapper that randomizes the goal position in the environment."""
+
+    def __init__(self, env: Env, vertical=True):
+        """Randomize the goal position in the environment.
+
+        Args:
+            env (Env): The environment to wrap
+            vertical (bool, optional): Whether to randomize position vertically (or horizontally).
+                                       Defaults to True.
+        """
+        super().__init__(env)
+        self.vertical = vertical
+
+    def reset(
+        self,
+        *,
+        seed: Union[int, None] = None,
+        options: Union[dict[str, Any], None] = None
+    ) -> tuple[Any, dict[str, Any]]:
+        super().reset(seed=seed)
+
+        # Remove the goal from the grid
+        has_goal = False
+        for i in range(self.env.unwrapped.width):
+            for j in range(self.env.unwrapped.height):
+                if (
+                    self.env.unwrapped.grid.get(i, j) is not None
+                    and self.env.unwrapped.grid.get(i, j).type == "goal"
+                ):
+                    self.env.unwrapped.grid.set(i, j, None)
+                    goalX = i
+                    goalY = j
+                    has_goal = True
+                    break
+
+        if has_goal:
+            # The dimensions of the box in which the goal can spawn
+            if self.vertical:
+                spawn_box_width = 1
+                spawn_box_height = self.unwrapped.height - 2
+                self.env.unwrapped.goal_pos = self.env.unwrapped.place_obj(
+                    Goal(), top=(goalX, 1), size=(spawn_box_width, spawn_box_height)
+                )
+            else:
+                spawn_box_width = self.unwrapped.width - 2
+                spawn_box_height = 1
+                # Update goal position
+                self.env.unwrapped.goal_pos = self.env.unwrapped.place_obj(
+                    Goal(), top=(1, goalY), size=(spawn_box_width, spawn_box_height)
+                )
+
+        obs = self.env.unwrapped.gen_obs()
+        return obs, {}
