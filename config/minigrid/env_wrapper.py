@@ -228,17 +228,17 @@ class OneHotObjEncodingWrapper(ObservationWrapper):
         )
 
     def observation(self, observation):
-        """Take a H x W x 3 image observation and convert it to a H x W x N one-hot encoding."""
+        """Take a W x H x 3 image observation and convert it to a W x H x N one-hot encoding."""
         img = observation["image"]
         out = np.zeros(self.observation_space.spaces["image"].shape, dtype="uint8")
 
         # Determine the object at the agent's position
         col, row = self.env.unwrapped.agent_pos
-        obj = self.grid.get(col, row)
+        obj = self.env.unwrapped.grid.get(col, row)
         if obj is None:
-            out[row, col, self.objects.index("empty")] = 1
+            out[col, row, self.objects.index("empty")] = 1
         else:
-            out[self.agent_pos[0], self.agent_pos[1], self.objects.index(obj.type)] = 1
+            out[col, row, self.objects.index(obj.type)] = 1
 
         # Encode the rest of the grid
         for col in range(img.shape[0]):
