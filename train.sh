@@ -1,9 +1,12 @@
 #!/bin/bash
 set -ex
-NUM_GPUS="${SLURM_GPUS_ON_NODE:-1}"
-NUM_CPUS="$((${SLURM_CPUS_ON_NODE:-8} * 2))"
+NUM_CPUS=$(($(nproc) / 4))
+NUM_GPUS=$(($(lspci | grep -i nvidia | wc -l) / 4)) 
 TASK_NAME="${1:-Asterix}"
-export CUDA_VISIBLE_DEVICES=1,2
+
+# Select the GPUs with most available memory
+GPU_MEM_INFO=$(nvidia-smi --query-gpu=index,memory.free --format=csv,noheader,nounits | sort -t, -k2 -rn | head -n $NUM_GPUS)
+export CUDA_VISIBLE_DEVICES=$(echo "$GPU_MEM_INFO" | awk -F "," '{print $1}' | paste -sd "," -)
 
 # To set these values, start the program following these instructions:
 #
@@ -11,17 +14,17 @@ export CUDA_VISIBLE_DEVICES=1,2
 #     to `ray satus`
 #  2. Increase CPU actors until CPU full.
 GPU_ACTORS=6
-CPU_ACTORS=10
+CPU_ACTORS=40
 
-#py-spy top --subprocesses -r 10 -- \
-python main.py --env "procgen-coinrun-v0" --case procgen --opr train \
-  --num_gpus 2 --num_cpus 16 --gpu_mem 10 \
+python main.py --env "MiniGrid-LavaGapS6-v0" --case minigrid --opr train \
+  --num_gpus "$NUM_GPUS" --num_cpus "$NUM_CPUS" --gpu_mem 10 \
   --cpu_actor $CPU_ACTORS --gpu_actor $GPU_ACTORS \
   --seed 0 \
   --use_priority \
   --use_max_priority \
   --amp_type 'torch_amp' \
-  --info 'EfficientZero-V3' \
+  --augmentation 'none' \
+  --info 'MuZero-LavaGap-[6x6]-[obj]-[CR]' \
   --record_video \
   --auto_resume \
   --object_store_mem=1000000000
