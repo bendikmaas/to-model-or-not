@@ -339,6 +339,8 @@ class ReconstructionNetwork(torch.nn.Module):
             x = self.conv(x)
             x = self.bn(x)
             x = nn.functional.relu(x)
+
+        x = torch.sigmoid(x)
         return x
 
 
