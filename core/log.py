@@ -8,7 +8,17 @@ train_logger = logging.getLogger('train')
 test_logger = logging.getLogger('train_test')
 
 
-def _log(config, training_step, log_data, model, replay_buffer, lr, shared_storage, summary_writer, vis_result):
+def _log(
+    config,
+    training_step,
+    log_data,
+    model,
+    replay_buffer,
+    lr,
+    shared_storage,
+    summary_writer,
+    visualize_results,
+):
     loss_data, td_data, priority_data = log_data
 
     (
@@ -23,7 +33,7 @@ def _log(config, training_step, log_data, model, replay_buffer, lr, shared_stora
         reconstruction_loss,
     ) = loss_data
 
-    if vis_result:
+    if visualize_results:
         new_priority, target_value_prefix, target_value, trans_target_value_prefix, trans_target_value, target_value_prefix_phi, target_value_phi, \
         pred_value_prefix, pred_value, target_policies, predicted_policies, state_lst, other_loss, other_log, other_dist = td_data
         batch_weights, batch_indices = priority_data
@@ -93,7 +103,7 @@ def _log(config, training_step, log_data, model, replay_buffer, lr, shared_stora
                 summary_writer.add_histogram('network_weights' + '/' + name, W.data.cpu().numpy(), training_step)
             pass
         tag = 'train'
-        if vis_result:
+        if visualize_results:
             summary_writer.add_histogram('{}_replay_data/replay_buffer_priorities'.format(tag),
                                          priorities,
                                          training_step)

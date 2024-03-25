@@ -7,7 +7,6 @@ import shutil
 import logging
 
 import numpy as np
-import procgen
 
 from scipy.stats import entropy
 
@@ -238,7 +237,7 @@ def make_atari(env, skip=4, max_episode_steps=None):
 
 
 def set_seed(seed):
-    # set seed
+    """Set random seeds for reproducibility"""
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
