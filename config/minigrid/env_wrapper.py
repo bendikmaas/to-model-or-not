@@ -86,6 +86,69 @@ class MinigridWrapper(Game):
         self.env.close()
 
 
+class RGBImgPartialObsWrapper(ObservationWrapper):
+    """
+    Wrapper to use partially observable RGB image as observation.
+    This can be used to have the agent to solve the gridworld in pixel space.
+    """
+
+    def __init__(self, env, tile_size=8):
+        super().__init__(env)
+
+        # Rendering attributes for observations
+        self.tile_size = tile_size
+
+        obs_shape = env.observation_space.spaces["image"].shape
+        new_image_space = spaces.Box(
+            low=0,
+            high=255,
+            shape=(obs_shape[0] * tile_size, obs_shape[1] * tile_size, 3),
+            dtype="uint8",
+        )
+
+        self.observation_space = spaces.Dict(
+            {**self.observation_space.spaces, "image": new_image_space}
+        )
+
+    def observation(self, obs):
+        rgb_img_partial = self.get_frame(
+            highlight=False,
+            tile_size=self.tile_size,
+            agent_pov=True,
+        )
+
+        return {**obs, "image": rgb_img_partial}
+
+
+class RGBImgObsWrapper(ObservationWrapper):
+    """
+    Wrapper to use fully observable RGB image as observation,
+    This can be used to have the agent to solve the gridworld in pixel space.
+    """
+
+    def __init__(self, env, tile_size=8):
+        super().__init__(env)
+
+        # Rendering attributes for observations
+        self.tile_size = tile_size
+
+        new_image_space = spaces.Box(
+            low=0,
+            high=255,
+            shape=(self.env.width * tile_size, self.env.height * tile_size, 3),
+            dtype="uint8",
+        )
+
+        self.observation_space = spaces.Dict(
+            {**self.observation_space.spaces, "image": new_image_space}
+        )
+
+    def observation(self, obs):
+        rgb_img = self.get_frame(highlight=False, tile_size=self.tile_size)
+
+        return {**obs, "image": rgb_img}
+
+
 class PartialOneHotObjEncodingWrapper(ObservationWrapper):
     """
     Wrapper to get a one-hot encoding of the objects that are partially observable
@@ -101,9 +164,8 @@ class PartialOneHotObjEncodingWrapper(ObservationWrapper):
         super().__init__(env)
 
         self.objects = objects
-        if "agent" in objects:
-            view_size = self.env.unwrapped.agent_view_size
-            self.agent_pos = (view_size - 1, view_size // 2)
+        view_size = self.env.unwrapped.agent_view_size
+        self.agent_relative_pos = (view_size - 1, view_size // 2)
 
         # Number of bits per cell
         num_bits = len(objects)
@@ -117,22 +179,25 @@ class PartialOneHotObjEncodingWrapper(ObservationWrapper):
         )
 
     def observation(self, observation):
+        """Take a W x H x 3 image observation and convert it to a W x H x N one-hot encoding."""
         img = observation["image"]
         out = np.zeros(
             self.observation_space.spaces["image"].shape, dtype="uint8")
 
-        col, row = self.agent_pos
-        out[row, col, 0] = 1
+        # Set the agent's position
+        # TODO: This might be superfluous
+        out[
+            self.agent_relative_pos[0],
+            self.agent_relative_pos[1],
+            self.objects.index("agent"),
+        ] = 1
 
-        for i in range(img.shape[0]):
-            for j in range(img.shape[1]):
-
-                if (j, i) == self.agent_pos:
-                    out[i, j, self.objects.index("agent")] = 1
-                else:
-                    obj_idx = img[i, j, 0]
-                    obj = IDX_TO_OBJECT[obj_idx]
-                    out[i, j, self.objects.index(obj) + 1] = 1
+        # Encode the rest of the grid
+        for col in range(img.shape[0]):
+            for row in range(img.shape[1]):
+                obj_idx = img[col, row, 0]
+                obj = IDX_TO_OBJECT[obj_idx]
+                out[col, row, self.objects.index(obj)] = 1
 
         return {**observation, "image": out}
 
@@ -163,22 +228,24 @@ class OneHotObjEncodingWrapper(ObservationWrapper):
         )
 
     def observation(self, observation):
+        """Take a H x W x 3 image observation and convert it to a H x W x N one-hot encoding."""
         img = observation["image"]
         out = np.zeros(self.observation_space.spaces["image"].shape, dtype="uint8")
 
         # Determine the object at the agent's position
-        obj = self.grid.get(*self.agent_pos)
+        col, row = self.env.unwrapped.agent_pos
+        obj = self.grid.get(col, row)
         if obj is None:
-            out[self.agent_pos[0], self.agent_pos[1], self.objects.index("empty")] = 1
+            out[row, col, self.objects.index("empty")] = 1
         else:
             out[self.agent_pos[0], self.agent_pos[1], self.objects.index(obj.type)] = 1
 
         # Encode the rest of the grid
-        for i in range(img.shape[0]):
-            for j in range(img.shape[1]):
-                obj_idx = img[i, j, 0]
+        for col in range(img.shape[0]):
+            for row in range(img.shape[1]):
+                obj_idx = img[col, row, 0]
                 obj = IDX_TO_OBJECT[obj_idx]
-                out[i, j, self.objects.index(obj)] = 1
+                out[col, row, self.objects.index(obj)] = 1
 
         return {**observation, "image": out}
 

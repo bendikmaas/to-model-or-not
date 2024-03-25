@@ -1,22 +1,38 @@
 import gymnasium as gym
-from minigrid.core.constants import OBJECT_TO_IDX
+from minigrid.core.constants import OBJECT_TO_IDX, COLOR_TO_IDX
+from minigrid.core.grid import WorldObj
 from minigrid.wrappers import (
     FullyObsWrapper,
-    RGBImgPartialObsWrapper,
-    RGBImgObsWrapper,
     ReseedWrapper,
 )
+import numpy as np
 import torch
 
+from config.minigrid.utils import WarpFrame, copy_minigrid
 from .model import EfficientZeroNet
 from .env_wrapper import (
     OneHotObjEncodingWrapper,
     MinigridWrapper,
     PartialOneHotObjEncodingWrapper,
+    RGBImgObsWrapper,
+    RGBImgPartialObsWrapper,
     WASDMinigridActionWrapper,
 )
 from core.dataset import Transforms
 from core.config import BaseConfig
+
+OBJECT_TO_COLOR = {
+    "wall": "grey",
+    "floor": "blue",
+    "goal": "green",
+    "lava": "red",
+    "agent": "red",
+    "door": "grey",
+    "key": "blue",
+    "ball": "blue",
+    "box": "yellow",
+}
+
 
 games = {
     "MiniGrid-LavaGapS5-v0": {
@@ -40,7 +56,6 @@ games = {
         "encoded_objects": ["unseen", "wall", "empty", "goal", "agent"],
     },
 }
-
 
 class MinigridConfig(BaseConfig):
     def __init__(self):
@@ -144,9 +159,8 @@ class MinigridConfig(BaseConfig):
         grid = env.unwrapped.grid
 
         # Get the dimensions of the grid
-        self.grid_height = grid.height
         self.grid_width = grid.width
-        # self.grid_size = games[env_name]["grid_size"]
+        self.grid_height = grid.height
 
         # Get the objects of the grid, if not image-based representation
         if self.image_based:
@@ -173,12 +187,7 @@ class MinigridConfig(BaseConfig):
         # Determine the observation size
         if self.agent_view:
             if self.image_based:
-                env = RGBImgPartialObsWrapper(env)
-                obs_shape = (
-                    self.num_image_channels,
-                    self.agent_view_size * env.tile_size,
-                    self.agent_view_size * env.tile_size,
-                )
+                obs_shape = (self.num_image_channels, 96, 96)
             else:
                 obs_shape = (
                     self.num_image_channels,
@@ -187,17 +196,12 @@ class MinigridConfig(BaseConfig):
                 )
         else:
             if self.image_based:
-                env = RGBImgObsWrapper(env)
-                obs_shape = (
-                    self.num_image_channels,
-                    self.grid_width * env.tile_size,
-                    self.grid_height * env.tile_size,
-                )
+                obs_shape = (self.num_image_channels, 96, 96)
             else:
                 obs_shape = (
                     self.num_image_channels,
-                    self.grid_width,
                     self.grid_height,
+                    self.grid_width,
                 )
         self.obs_shape = (
             obs_shape[0] * self.stacked_observations,
@@ -206,7 +210,8 @@ class MinigridConfig(BaseConfig):
         )
 
         self.action_space_size = 3 if self.agent_view else 4
-        self.min_return, self.max_return = games[env_name]["return_bounds"]
+        # TODO: Make bounds more precise
+        self.min_return, self.max_return = env.unwrapped.reward_range
         self.num_levels_per_actor = self.num_train_levels // self.num_actors
 
     def get_uniform_network(self):
@@ -248,6 +253,10 @@ class MinigridConfig(BaseConfig):
             max_episode_steps=self.max_moves,
         )
 
+        # Remove highlight if not agent view
+        if not self.agent_view:
+            env.unwrapped.highlight = False
+
         # Wrap in video recorder
         if record_video and save_path is not None:
             from gymnasium.wrappers.record_video import RecordVideo
@@ -268,6 +277,13 @@ class MinigridConfig(BaseConfig):
         if self.agent_view:
             if self.image_based:
                 env = RGBImgPartialObsWrapper(env)
+                env = WarpFrame(
+                    env,
+                    height=self.obs_shape[1],
+                    width=self.obs_shape[2],
+                    grayscale=self.gray_scale,
+                    dict_space_key="image",
+                )
             else:
                 env = PartialOneHotObjEncodingWrapper(
                     env, objects=self.objects_to_encode
@@ -275,6 +291,13 @@ class MinigridConfig(BaseConfig):
         else:
             if self.image_based:
                 env = RGBImgObsWrapper(env)
+                env = WarpFrame(
+                    env,
+                    height=self.obs_shape[1],
+                    width=self.obs_shape[2],
+                    grayscale=self.gray_scale,
+                    dict_space_key="image",
+                )
             else:
                 env = WASDMinigridActionWrapper(env)
                 env = FullyObsWrapper(env)
@@ -282,6 +305,7 @@ class MinigridConfig(BaseConfig):
 
         # Wrap in reseed wrapper if training to only use a fixed subset of levels
         if not (test or final_test):
+
             # Asynchronize the seeds for each actor
             seed_idx = actor_rank * self.num_levels_per_actor
             seeds = list(range(seed, seed + self.num_train_levels))
@@ -304,5 +328,73 @@ class MinigridConfig(BaseConfig):
 
     def transform(self, images):
         return self.transforms.transform(images)
+
+    def get_frame_from_encoded_obs(self, original_env, obs, is_reconstruction=False):
+        """Get the environment frame based on a one-hot-encoded observation.
+
+        Args:
+            original_env (MinigridEnv): The original Minigrid environment.
+            obs (np.ndarray): The observation of the grid. Assumes shape (W, H, C),
+                                where C are one-hot encodings of objects.
+        """
+
+        # Make a copy of the environment
+        env = copy_minigrid(
+            original_env,
+            env_name=self.env_name,
+            agent_view_size=self.agent_view_size,
+        )
+
+        # Decode the observation
+        W, H = env.unwrapped.grid.width, env.unwrapped.grid.height
+        for i in range(W):
+            for j in range(H):
+                if self.agent_view:
+                    # Get the relative coordinates for the subgrid
+                    rel_coords = env.unwrapped.relative_coords(i, j)
+                    if rel_coords is None:
+                        continue
+                    else:
+                        col, row = rel_coords
+                else:
+                    col, row = i, j
+
+                max_idx = np.argmax(obs[col, row, :-1])  # Ignore the agent
+                obj = self.objects_to_encode[max_idx]
+
+                if obj == "unseen":
+                    continue
+                if obj == "empty":
+                    color_idx = 0
+                else:
+                    color_idx = COLOR_TO_IDX[OBJECT_TO_COLOR[obj]]
+
+                obj_idx = OBJECT_TO_IDX[obj]
+                world_obj = WorldObj.decode(obj_idx, color_idx, 0)
+                env.unwrapped.grid.set(i, j, world_obj)
+
+        if self.agent_view:
+            env = RGBImgPartialObsWrapper(env)
+        else:
+            env = RGBImgObsWrapper(env)
+
+        if not self.agent_view and is_reconstruction:
+
+            # Sort the indices of WH in obs[-1], based on the values obs[-1]
+            indices = np.argsort(obs[-1].flatten())[::-1]
+            cols, rows = np.unravel_index(indices, obs[-1].shape)
+
+            # Place the agent in the grid
+            for row, col in zip(rows, cols):
+                obj = env.unwrapped.grid.get(col, row)
+                if obj is None or obj.can_overlap():
+                    env.unwrapped.agent_pos = (cols[i], rows[i])
+                    break
+
+        frame = env.get_frame(highlight=self.agent_view)
+        env.close()
+
+        return frame
+
 
 game_config = MinigridConfig()
