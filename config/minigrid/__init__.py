@@ -79,7 +79,7 @@ class MinigridConfig(BaseConfig):
             num_simulations=50,
             batch_size=256,
             td_steps=5,
-            num_actors=1,
+            num_actors=4,
             # network initialization/ & normalization
             init_zero=True,
             clip_reward=False,
@@ -90,12 +90,12 @@ class MinigridConfig(BaseConfig):
             lr_decay_steps=10000,
             auto_td_steps_ratio=0.3,
             # replay window
-            start_transitions=4,
+            start_transitions=2,
             total_transitions=100 * 1000,
-            transition_num=1,
+            transition_num=0.1,
             # frame skip & stack observation
             frame_skip=1,
-            stacked_observations=4,
+            stacked_observations=1,
             # coefficient
             reward_loss_coeff=1,
             value_loss_coeff=0.25,
@@ -138,7 +138,7 @@ class MinigridConfig(BaseConfig):
         # Minigrid-specific parameters
         self.agent_view = False
         self.agent_view_size = 3
-        self.num_train_levels = 3
+        self.num_train_levels = 8
 
     def visit_softmax_temperature_fn(self, trained_steps):
         if self.change_temperature:
