@@ -517,6 +517,7 @@ class PredictionNetwork(nn.Module):
 
 
 class EfficientZeroNet(BaseNet):
+
     def __init__(
         self,
         observation_shape,
@@ -532,6 +533,7 @@ class EfficientZeroNet(BaseNet):
         reward_support_size,
         value_support_size,
         downsample,
+        do_reconstruction,
         inverse_value_transform,
         inverse_reward_transform,
         lstm_hidden_size,
@@ -541,7 +543,7 @@ class EfficientZeroNet(BaseNet):
         pred_hid=64,
         pred_out=256,
         init_zero=False,
-        state_norm=False
+        state_norm=False,
     ):
         """EfficientZero network
         Parameters
@@ -572,6 +574,8 @@ class EfficientZeroNet(BaseNet):
             dim of value output
         downsample: bool
             True -> do downsampling for observations. (For board games, do not need)
+        do_reconstruction: bool
+            True -> do reconstruction for observations
         inverse_value_transform: Any
             A function that maps value supports into value scalars
         inverse_reward_transform: Any
@@ -640,13 +644,11 @@ class EfficientZeroNet(BaseNet):
             momentum=bn_mt,
         )
 
-        self.reconstruction_network = ReconstructionNetwork(
-            observation_shape,
-            num_blocks,
-            num_channels,
-            downsample,
-            momentum=bn_mt
-        )
+        self.do_reconstruction = do_reconstruction
+        if do_reconstruction:
+            self.reconstruction_network = ReconstructionNetwork(
+                observation_shape, num_blocks, num_channels, downsample, momentum=bn_mt
+            )
 
         self.dynamics_network = DynamicsNetwork(
             num_blocks,
@@ -710,7 +712,10 @@ class EfficientZeroNet(BaseNet):
             return encoded_state_normalized
 
     def reconstruction(self, encoded_state):
-        reconstructed_observation = self.reconstruction_network(encoded_state)
+        if self.do_reconstruction:
+            reconstructed_observation = self.reconstruction_network(encoded_state)
+        else:
+            reconstructed_observation = None
         return reconstructed_observation
 
     def dynamics(self, encoded_state, reward_hidden, action):

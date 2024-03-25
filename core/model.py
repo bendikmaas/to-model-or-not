@@ -4,18 +4,17 @@ import typing
 import numpy as np
 import torch.nn as nn
 
-from typing import List
+from typing import List, Optional
 
 
 class NetworkOutput(typing.NamedTuple):
-    # output format of the model
+    # Output format of the model
     value: float
     value_prefix: float
     policy_logits: List[float]
     hidden_state: List[float]
-    reconstructed_state: List[float]
+    reconstructed_state: Optional[List[float]]
     reward_hidden: object
-
 
 def concat_output_value(output_lst):
     # concat the values of the model output list
@@ -99,9 +98,19 @@ class BaseNet(nn.Module):
                              torch.zeros(1, num, self.lstm_hidden_size).detach().cpu().numpy())
         else:
             # zero initialization for reward (value prefix) hidden states
-            reward_hidden = (torch.zeros(1, num, self.lstm_hidden_size).to('cuda'), torch.zeros(1, num, self.lstm_hidden_size).to('cuda'))
+            reward_hidden = (
+                torch.zeros(1, num, self.lstm_hidden_size).to("cuda"),
+                torch.zeros(1, num, self.lstm_hidden_size).to("cuda"),
+            )
 
-        return NetworkOutput(value, [0. for _ in range(num)], actor_logit, state, reconstructed_obs, reward_hidden)
+        return NetworkOutput(
+            value,
+            [0.0 for _ in range(num)],
+            actor_logit,
+            state,
+            reconstructed_obs,
+            reward_hidden,
+        )
 
     def recurrent_inference(self, hidden_state, reward_hidden, action) -> NetworkOutput:
         state, reward_hidden, value_prefix = self.dynamics(hidden_state, reward_hidden, action)
