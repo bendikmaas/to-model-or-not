@@ -64,11 +64,11 @@ class MinigridConfig(BaseConfig):
             last_steps=4000,
             test_interval=500,
             log_interval=100,
-            vis_interval=100,
+            vis_interval=300000,
             test_episodes=32,
             checkpoint_interval=100,
             target_model_interval=200,
-            save_ckpt_interval=4000,
+            save_ckpt_interval=20000,
             recording_interval=100,
             max_moves=200,
             test_max_moves=220,
@@ -90,9 +90,9 @@ class MinigridConfig(BaseConfig):
             lr_decay_steps=10000,
             auto_td_steps_ratio=0.3,
             # replay window
-            start_transitions=2,
+            start_transitions=2000,
             total_transitions=100 * 1000,
-            transition_num=0.1,
+            replay_buffer_size=5000,
             # frame skip & stack observation
             frame_skip=1,
             stacked_observations=1,
@@ -115,7 +115,8 @@ class MinigridConfig(BaseConfig):
         self.max_moves //= self.frame_skip
         self.test_max_moves //= self.frame_skip
 
-        self.start_transitions = self.start_transitions * 1000 // self.frame_skip
+        # Buffer warm up
+        self.start_transitions = self.start_transitions // self.frame_skip
         self.start_transitions = max(1, self.start_transitions)
 
         self.bn_mt = 0.1
@@ -138,16 +139,18 @@ class MinigridConfig(BaseConfig):
         # Minigrid-specific parameters
         self.agent_view = False
         self.agent_view_size = 3
-        self.num_train_levels = 8
+        self.num_train_levels = 10
+        self.num_levels_per_actor = self.num_train_levels // self.num_actors
+        self.action_space_size = 3 if self.agent_view or self.image_based else 4
 
     def visit_softmax_temperature_fn(self, trained_steps):
         if self.change_temperature:
             if trained_steps < 0.5 * (self.training_steps + self.last_steps):
                 return 1.0
             elif trained_steps < 0.75 * (self.training_steps + self.last_steps):
-                return 0.5
+                return 0.75
             else:
-                return 0.25
+                return 0.5
         else:
             return 1.0
 
@@ -210,10 +213,8 @@ class MinigridConfig(BaseConfig):
             obs_shape[2],
         )
 
-        self.action_space_size = 3 if self.agent_view else 4
         # TODO: Make bounds more precise
         self.min_return, self.max_return = env.unwrapped.reward_range
-        self.num_levels_per_actor = self.num_train_levels // self.num_actors
 
     def get_uniform_network(self):
         return EfficientZeroNet(
