@@ -39,7 +39,6 @@ class DataWorker(object):
         self.gap_step = self.config.num_unroll_steps + self.config.td_steps
         self.last_model_index = -1
 
-
     def put(self, data):
         # put a game history into the pool
         self.trajectory_pool.append(data)
@@ -70,7 +69,7 @@ class DataWorker(object):
         end_index = beg_index + self.config.num_unroll_steps
 
         pad_obs_lst = game_histories[i].obs_history[beg_index:end_index]
-        pad_child_visits_lst = game_histories[i].child_visits[beg_index:end_index]
+        pad_child_visits_lst = game_histories[i].policy[beg_index:end_index]
 
         beg_index = 0
         end_index = beg_index + self.gap_step - 1
@@ -138,11 +137,11 @@ class DataWorker(object):
 
         num_transitions = 0
         max_transitions = self.config.total_transitions // self.config.num_actors
-        
+
         # Self-play loop that runs until maximum number of transitions are gathered
         with torch.no_grad():
             while True:
-                
+
                 # Break self-play loop when training is finished
                 trained_steps = ray.get(self.storage.get_training_step_counter.remote())
                 if trained_steps >= self.config.training_steps + self.config.last_steps:
@@ -182,7 +181,6 @@ class DataWorker(object):
                 self_play_visit_entropy = []
                 other_dist = {}
 
-
                 # Play games in parallel until max moves or all done
                 step_counter = 0
                 while not dones.all() and (step_counter <= self.config.max_moves):
@@ -190,14 +188,14 @@ class DataWorker(object):
                         # Check if training has started
                         if not start_training:
                             start_training = ray.get(self.storage.get_start_signal.remote())
-                        
+
                         # Return if training is finished
                         trained_steps = ray.get(self.storage.get_training_step_counter.remote())
                         if trained_steps >= self.config.training_steps + self.config.last_steps:
                             print("Training finished. Sleeping.")
                             time.sleep(30)
                             return
-                        
+
                         # Wait if self-play is faster than training speed
                         if start_training and (num_transitions / max_transitions) > (trained_steps / self.config.training_steps):
                             time.sleep(2)
@@ -305,26 +303,56 @@ class DataWorker(object):
                         value_prefix_pool = network_output.value_prefix
                         policy_logits_pool = network_output.policy_logits.tolist()
 
-                        # Run parallel MCTS to get policies
-                        roots = cytree.Roots(num_parallel_envs, self.config.action_space_size, self.config.num_simulations)
-                        noises = [np.random.dirichlet([self.config.root_dirichlet_alpha] * self.config.action_space_size).astype(np.float32).tolist() 
-                                  for _ in range(num_parallel_envs)]
-                        roots.prepare(self.config.root_exploration_fraction, noises, value_prefix_pool, policy_logits_pool)
-                        MCTS(self.config).search(roots, model, hidden_state_roots, reward_hidden_roots)
-                        roots_distributions = roots.get_distributions()
-                        roots_values = roots.get_values()
-                        
+                        if not self.config.model_free:
+                            # Run parallel MCTS to get policies
+                            roots = cytree.Roots(
+                                num_parallel_envs,
+                                self.config.action_space_size,
+                                self.config.num_simulations,
+                            )
+                            noises = [
+                                np.random.dirichlet(
+                                    [self.config.root_dirichlet_alpha]
+                                    * self.config.action_space_size
+                                )
+                                .astype(np.float32)
+                                .tolist()
+                                for _ in range(num_parallel_envs)
+                            ]
+                            roots.prepare(
+                                self.config.root_exploration_fraction,
+                                noises,
+                                value_prefix_pool,
+                                policy_logits_pool,
+                            )
+                            MCTS(self.config).search(
+                                roots, model, hidden_state_roots, reward_hidden_roots
+                            )
+                            policies = roots.get_distributions()
+                            roots_values = roots.get_values()
+                        else:
+                            policies = policy_logits_pool
+                            roots_values = value_prefix_pool
+
                         # Select action and step in each environment
                         for i in range(num_parallel_envs):
                             deterministic = False
-                            
+
                             # Before starting training, use a random policy
-                            distributions = roots_distributions[i] if start_training else np.ones(
-                                self.config.action_space_size)
+                            policy = (
+                                policies[i]
+                                if start_training
+                                else np.ones(self.config.action_space_size)
+                            )
                             value, temperature, env = roots_values[i], _temperature[i], envs[i]
-                            
+
                             # Select action
-                            action, visit_entropy = select_action(distributions, temperature=temperature, deterministic=deterministic)
+                            action, visit_entropy = select_action(
+                                policy,
+                                model_free=self.config.model_free,
+                                temperature=temperature,
+                                deterministic=deterministic,
+                            )
                             obs, reward, done, info = env.step(action)
                             # Clip the reward
                             if self.config.clip_reward:
@@ -333,7 +361,7 @@ class DataWorker(object):
                                 clip_reward = reward
 
                             # Update game history
-                            game_histories[i].store_search_stats(distributions, value)
+                            game_histories[i].store_search_stats(policy, value)
                             game_histories[i].append(action, obs, clip_reward)
 
                             # Update counters/loggers
@@ -415,7 +443,7 @@ class DataWorker(object):
                     avg_clipped_return = 0
 
                 other_dist = {}
-                
+
                 # send logs
                 self.storage.set_data_worker_logs.remote(avg_steps, max_eps_steps,
                                                                 avg_return, avg_clipped_return, normalized_avg_return,

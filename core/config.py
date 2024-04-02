@@ -54,6 +54,7 @@ class BaseConfig(object):
         auto_td_steps_ratio: float = 0.3,
         total_transitions: int = 100 * 1000,
         transition_num: float = 25,
+        model_free: bool = False,
         do_consistency: bool = True,
         do_reconstruction: bool = True,
         use_value_prefix: bool = False,
@@ -148,6 +149,8 @@ class BaseConfig(object):
             total number of collected transitions. (100k setting)
         transition_num: float
             capacity of transitions in replay buffer
+        model_free: bool
+            True -> model-free training
         do_consistency: bool
             True -> use temporal consistency
         do_reconstruction: bool
@@ -206,6 +209,7 @@ class BaseConfig(object):
         # Self-Play
         self.action_space_size = None
         self.num_actors = num_actors
+        self.model_free = model_free
         self.do_consistency = do_consistency
         self.do_reconstruction = do_reconstruction
         self.use_value_prefix = use_value_prefix
@@ -434,6 +438,8 @@ class BaseConfig(object):
 
         if args.revisit_policy_search_rate is not None:
             self.revisit_policy_search_rate = args.revisit_policy_search_rate
+        else:
+            self.revisit_policy_search_rate = 0
 
         localtime = time.asctime(time.localtime(time.time()))
         seed_tag = 'seed={}'.format(self.seed)

@@ -81,6 +81,7 @@ class MinigridConfig(BaseConfig):
             td_steps=5,
             num_actors=4,
             # network initialization/ & normalization
+            model_free=True,
             init_zero=True,
             clip_reward=False,
             # lr scheduler

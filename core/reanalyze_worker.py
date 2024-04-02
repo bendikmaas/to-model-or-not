@@ -70,7 +70,7 @@ class BatchWorker_CPU(object):
             # off-policy correction: shorter horizon of td steps
             delta_td = (total_transitions - idx) // config.auto_td_steps
             td_steps = config.td_steps - delta_td
-            td_steps = np.clip(td_steps, 1, 5).astype(np.int32)
+            td_steps = np.clip(td_steps, 1, config.td_steps).astype(np.int32)
 
             # prepare the corresponding observations for bootstrapped values o_{t+k}
             game_obs = game.obs(state_index + td_steps, config.num_unroll_steps)
@@ -105,16 +105,48 @@ class BatchWorker_CPU(object):
         state_index_lst: list
             transition index in game
         """
-        child_visits = []
+        zero_obs = games[0].zero_obs()
+        config = self.config
+
+        policies = []
+        rewards = []
+        actions = []
+        value_obs = []
+        value_mask = []
         traj_lens = []
 
         for game, state_index, idx in zip(games, state_index_lst, indices):
             traj_len = len(game)
             traj_lens.append(traj_len)
+            rewards.append(game.rewards[state_index])
+            actions.append(game.actions[state_index])
+            policies.append(game.policy)
 
-            child_visits.append(game.child_visits)
+            if config.model_free:
+                # prepare the corresponding observations for bootstrapped values o_{t+k}
+                bootstrap_index = state_index + 1
+                game_obs = game.obs(bootstrap_index, config.num_unroll_steps)
+                for current_index in range(config.num_unroll_steps + 1):
+                    if current_index + bootstrap_index < traj_len:
+                        value_mask.append(1)
+                        beg_index = current_index
+                        end_index = beg_index + config.stacked_observations
+                        obs = game_obs[beg_index:end_index]
+                    else:
+                        value_mask.append(0)
+                        obs = zero_obs
 
-        policy_non_re_context = [state_index_lst, child_visits, traj_lens]
+                    value_obs.append(obs)
+
+        policy_non_re_context = [
+            state_index_lst,
+            policies,
+            rewards,
+            actions,
+            value_obs,
+            value_mask,
+            traj_lens,
+        ]
         return policy_non_re_context
 
     def _prepare_policy_re_context(self, indices, games, state_index_lst):
@@ -135,12 +167,12 @@ class BatchWorker_CPU(object):
             # for policy
             policy_obs_lst = []
             policy_mask = []  # 0 -> out of traj, 1 -> new policy
-            rewards, child_visits, traj_lens = [], [], []
+            rewards, policies, traj_lens = [], [], []
             for game, state_index in zip(games, state_index_lst):
                 traj_len = len(game)
                 traj_lens.append(traj_len)
                 rewards.append(game.rewards)
-                child_visits.append(game.child_visits)
+                policies.append(game.policy)
                 # prepare the corresponding observations
                 game_obs = game.obs(state_index, config.num_unroll_steps)
                 for current_index in range(state_index, state_index + config.num_unroll_steps + 1):
@@ -156,7 +188,14 @@ class BatchWorker_CPU(object):
                     policy_obs_lst.append(obs)
 
         policy_obs_lst = ray.put(policy_obs_lst)
-        policy_re_context = [policy_obs_lst, policy_mask, state_index_lst, indices, child_visits, traj_lens]
+        policy_re_context = [
+            policy_obs_lst,
+            policy_mask,
+            state_index_lst,
+            indices,
+            policies,
+            traj_lens,
+        ]
         return policy_re_context
 
     def make_batch(self, batch_context, ratio, weights=None):
@@ -243,7 +282,7 @@ class BatchWorker_CPU(object):
                 start = ray.get(self.storage.get_start_signal.remote())
                 time.sleep(1)
                 continue
-            
+
             ray_data_lst = [self.storage.get_training_step_counter.remote(), self.storage.get_target_weights.remote()]
             trained_steps, target_weights = ray.get(ray_data_lst)
 
@@ -333,7 +372,7 @@ class BatchWorker_GPU(object):
                 network_output.append(m_output)
 
             # concat the output slices after model inference
-            if self.config.use_root_value:
+            if self.config.use_root_value and self.config.model_free:
                 # use the root values from MCTS
                 # the root values have limited improvement but require much more GPU actors;
                 _, value_prefix_pool, policy_logits_pool, hidden_state_roots, reward_hidden_roots = concat_output(network_output)
@@ -400,7 +439,9 @@ class BatchWorker_GPU(object):
         if policy_re_context is None:
             return batch_policies_re
 
-        policy_obs_lst, policy_mask, state_index_lst, indices, child_visits, traj_lens = policy_re_context
+        policy_obs_lst, policy_mask, state_index_lst, indices, policy, traj_lens = (
+            policy_re_context
+        )
         policy_obs_lst = ray.get(policy_obs_lst)
         batch_size = len(policy_obs_lst)
         device = self.config.device
@@ -461,26 +502,66 @@ class BatchWorker_GPU(object):
     def _prepare_policy_non_re(self, policy_non_re_context):
         """prepare policy targets from the non-reanalyzed context of policies
         """
+
         batch_policies_non_re = []
         if policy_non_re_context is None:
             return batch_policies_non_re
 
-        state_index_lst, child_visits, traj_lens = policy_non_re_context
+        (
+            state_index_lst,
+            policies,
+            rewards,
+            actions,
+            value_obs,
+            value_mask,
+            traj_lens,
+        ) = policy_non_re_context
         with torch.no_grad():
-            # for policy
+            if self.config.model_free:
+                stack_obs = prepare_observation_lst(value_obs)
+                if self.config.image_based:
+                    stack_obs = (
+                        torch.from_numpy(stack_obs).to(self.config.device).float()
+                        / 255.0
+                    )
+                else:
+                    stack_obs = torch.from_numpy(np.array(stack_obs)).to(
+                        self.config.device
+                    )
+
+                # Get initial inference
+                if self.config.amp_type == "torch_amp":
+                    with autocast():
+                        network_output = self.model.initial_inference(stack_obs.float())
+                else:
+                    network_output = self.model.initial_inference(stack_obs.float())
+                prediction = network_output.value.squeeze().tolist()
+                print(len(prediction))
+
             policy_mask = []  # 0 -> out of traj, 1 -> old policy
-            # for game, state_index in zip(games, state_index_lst):
-            for traj_len, child_visit, state_index in zip(traj_lens, child_visits, state_index_lst):
+            value_index = 0
+            for traj_len, policy, reward, action, state_index in zip(
+                traj_lens, policies, rewards, actions, state_index_lst
+            ):
                 # traj_len = len(game)
                 target_policies = []
 
                 for current_index in range(state_index, state_index + self.config.num_unroll_steps + 1):
                     if current_index < traj_len:
-                        target_policies.append(child_visit[current_index])
+                        target_policy = policy[current_index].tolist()
+                        if self.config.model_free:
+                            target_policy[action] += (
+                                reward
+                                + (prediction[current_index] * self.config.discount)
+                                * value_mask[value_index]
+                            )
+
+                        target_policies.append(target_policy)
                         policy_mask.append(1)
                     else:
                         target_policies.append([0 for _ in range(self.config.action_space_size)])
                         policy_mask.append(0)
+                    value_index += 1
 
                 batch_policies_non_re.append(target_policies)
         batch_policies_non_re = np.asarray(batch_policies_non_re)

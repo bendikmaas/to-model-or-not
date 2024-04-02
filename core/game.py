@@ -52,7 +52,7 @@ class GameHistory:
         self.action_space_size = config.action_space_size
         self.zero_obs_shape = (config.obs_shape[-2], config.obs_shape[-1], config.num_image_channels)
 
-        self.child_visits = []
+        self.policy = []
         self.root_values = []
 
         self.actions = []
@@ -75,7 +75,7 @@ class GameHistory:
         init_observations: list
             list containing a observation stack from the previous time steps
         """
-        self.child_visits = []
+        self.policy = []
         self.root_values = []
 
         self.actions = []
@@ -121,8 +121,8 @@ class GameHistory:
         for value in next_block_root_values:
             self.root_values.append(value)
 
-        for child_visits in next_block_child_visits:
-            self.child_visits.append(child_visits)
+        for policy in next_block_child_visits:
+            self.policy.append(policy)
 
     def is_full(self):
         # history block is full
@@ -180,17 +180,21 @@ class GameHistory:
         self.rewards = np.array(self.rewards)
         self.obs_history = ray.put(np.array(self.obs_history))
         self.actions = np.array(self.actions)
-        self.child_visits = np.array(self.child_visits)
+        self.policy = np.array(self.policy)
         self.root_values = np.array(self.root_values)
 
     def store_search_stats(self, visit_counts, root_value, idx: int = None):
         # store the visit count distributions and value of the root node after MCTS
         sum_visits = sum(visit_counts)
         if idx is None:
-            self.child_visits.append([visit_count / sum_visits for visit_count in visit_counts])
+            self.policy.append(
+                [visit_count / sum_visits for visit_count in visit_counts]
+            )
             self.root_values.append(root_value)
         else:
-            self.child_visits[idx] = [visit_count / sum_visits for visit_count in visit_counts]
+            self.policy[idx] = [
+                visit_count / sum_visits for visit_count in visit_counts
+            ]
             self.root_values[idx] = root_value
 
     def __len__(self):
