@@ -350,7 +350,7 @@ class DataWorker(object):
                                 if start_training
                                 else np.ones(self.config.action_space_size)
                             )
-                            value, temperature, epsilon, env = roots_values[i], _temperature[i], _epsilons[i] envs[i]
+                            value, temperature, epsilon, env = roots_values[i], _temperature[i], _epsilons[i], envs[i]
 
                             # Select action
                             action, visit_entropy = select_action(
