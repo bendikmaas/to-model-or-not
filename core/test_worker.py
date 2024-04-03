@@ -163,7 +163,10 @@ class TestWorker(object):
                     else:
                         clipped_reward = reward
 
-                    game_histories[i].store_search_stats(distributions, value)
+                    if self.config.model_free:
+                        game_histories[i].store_inference_stats(distributions, value)
+                    else:
+                        game_histories[i].store_search_stats(distributions, value)
                     game_histories[i].append(action, obs, clipped_reward)
 
                     dones[i] = done

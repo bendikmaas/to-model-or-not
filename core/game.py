@@ -3,7 +3,7 @@ import copy
 
 import numpy as np
 
-from core.utils import str_to_arr
+from core.utils import str_to_arr, softmax
 
 
 class Game:
@@ -196,6 +196,16 @@ class GameHistory:
                 visit_count / sum_visits for visit_count in visit_counts
             ]
             self.root_values[idx] = root_value
+    
+    def store_inference_stats(self, policy_logits, value, idx: int = None):
+        # store the policy logits distributions and value of the root node after inference
+        action_probs = softmax(policy_logits)
+        if idx is None:
+            self.policy.append(action_probs)
+            self.root_values.append(value)
+        else:
+            self.policy[idx] = action_probs
+            self.root_values[idx] = value
 
     def __len__(self):
         return len(self.actions)

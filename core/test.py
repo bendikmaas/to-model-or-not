@@ -157,7 +157,10 @@ def test(config, model, counter, test_episodes, device, render,
                 else:
                     clip_reward = ori_reward
 
-                game_histories[i].store_search_stats(distributions, value)
+                if config.model_free:
+                    game_histories[i].store_inference_stats(distributions, value)
+                else:
+                    game_histories[i].store_search_stats(distributions, value)
                 game_histories[i].append(action, obs, clip_reward)
 
                 dones[i] = done

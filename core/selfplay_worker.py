@@ -205,6 +205,11 @@ class DataWorker(object):
                         _temperature = np.array(
                             [self.config.visit_softmax_temperature_fn(trained_steps=trained_steps) for env in
                             envs])
+                        
+                        # Set epsilons for action selection
+                        _epsilons = np.array(
+                            [self.config.epsilon_fn(trained_steps=trained_steps) for env in envs]
+                        )
 
                         # Update the models in self-play every checkpoint_interval
                         new_model_index = trained_steps // self.config.checkpoint_interval
@@ -238,6 +243,7 @@ class DataWorker(object):
                                                                                 avg_return, avg_clipped_return,
                                                                                 normalized_avg_return,
                                                                                 max_return, _temperature.mean(),
+                                                                                # TODO: add epsilon log
                                                                                 norm_visit_entropies, 0,
                                                                                 other_dist)
                                 max_return = - np.inf
@@ -344,7 +350,7 @@ class DataWorker(object):
                                 if start_training
                                 else np.ones(self.config.action_space_size)
                             )
-                            value, temperature, env = roots_values[i], _temperature[i], envs[i]
+                            value, temperature, epsilon, env = roots_values[i], _temperature[i], _epsilons[i] envs[i]
 
                             # Select action
                             action, visit_entropy = select_action(
@@ -352,6 +358,7 @@ class DataWorker(object):
                                 model_free=self.config.model_free,
                                 temperature=temperature,
                                 deterministic=deterministic,
+                                epsilon=epsilon,
                             )
                             obs, reward, done, info = env.step(action)
                             # Clip the reward
@@ -361,7 +368,10 @@ class DataWorker(object):
                                 clip_reward = reward
 
                             # Update game history
-                            game_histories[i].store_search_stats(policy, value)
+                            if self.config.model_free:
+                                game_histories[i].store_inference_stats(policy, value)
+                            else:
+                                game_histories[i].store_search_stats(policy, value)
                             game_histories[i].append(action, obs, clip_reward)
 
                             # Update counters/loggers

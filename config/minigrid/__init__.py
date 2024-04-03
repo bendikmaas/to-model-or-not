@@ -64,11 +64,11 @@ class MinigridConfig(BaseConfig):
             last_steps=4000,
             test_interval=500,
             log_interval=100,
-            vis_interval=100,
+            vis_interval=100000,
             test_episodes=32,
             checkpoint_interval=100,
             target_model_interval=200,
-            save_ckpt_interval=4000,
+            save_ckpt_interval=40000,
             recording_interval=100,
             max_moves=200,
             test_max_moves=220,
@@ -76,6 +76,8 @@ class MinigridConfig(BaseConfig):
             discount=0.997,
             dirichlet_alpha=0.3,
             value_delta_max=0.01,
+            epsilon_max=0.99,
+            epsilon_min=0.05,
             num_simulations=50,
             batch_size=256,
             td_steps=5,
@@ -146,11 +148,17 @@ class MinigridConfig(BaseConfig):
             if trained_steps < 0.5 * (self.training_steps + self.last_steps):
                 return 1.0
             elif trained_steps < 0.75 * (self.training_steps + self.last_steps):
-                return 0.5
+                return 0.75
             else:
-                return 0.25
+                return 0.5
         else:
             return 1.0
+    
+    def epsilon_fn(self, trained_steps):
+        if self.model_free:
+            return max(self.epsilon_min, self.epsilon_max - (self.epsilon_decay_rate * trained_steps))
+        else:
+            return 0.0
 
     def set_game(self, env_name):
         self.env_name = env_name

@@ -517,6 +517,8 @@ class BatchWorker_GPU(object):
             traj_lens,
         ) = policy_non_re_context
         with torch.no_grad():
+            
+            # If model-free, first get the predicted values for the next state
             if self.config.model_free:
                 stack_obs = prepare_observation_lst(value_obs)
                 if self.config.image_based:
@@ -536,7 +538,6 @@ class BatchWorker_GPU(object):
                 else:
                     network_output = self.model.initial_inference(stack_obs.float())
                 prediction = network_output.value.squeeze().tolist()
-                print(len(prediction))
 
             policy_mask = []  # 0 -> out of traj, 1 -> old policy
             value_index = 0
@@ -583,7 +584,13 @@ class BatchWorker_GPU(object):
             # target policy
             batch_policies_re = self._prepare_policy_re(policy_re_context)
             batch_policies_non_re = self._prepare_policy_non_re(policy_non_re_context)
-            batch_policies = np.concatenate([batch_policies_re, batch_policies_non_re])
+            
+            if len(batch_policies_re) == 0:
+                batch_policies = batch_policies_non_re
+            elif len(batch_policies_non_re) == 0:
+                batch_policies = batch_policies_re
+            else:
+                batch_policies = np.concatenate([batch_policies_re, batch_policies_non_re])
 
             targets_batch = [batch_value_prefixs, batch_values, batch_policies]
             # a batch contains the inputs and the targets; inputs is prepared in CPU workers

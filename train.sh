@@ -16,15 +16,13 @@ export CUDA_VISIBLE_DEVICES=$(echo "$GPU_MEM_INFO" | awk -F "," '{print $1}' | p
 GPU_ACTORS=6
 CPU_ACTORS=40
 
-python main.py --env "MiniGrid-LavaGapS6-v0" --case minigrid --opr train \
+python main.py --env "MiniGrid-LavaGapS7-v0" --case minigrid --opr train \
   --num_gpus "$NUM_GPUS" --num_cpus "$NUM_CPUS" --gpu_mem 10 \
   --cpu_actor $CPU_ACTORS --gpu_actor $GPU_ACTORS \
   --seed 0 \
   --use_priority \
   --use_max_priority \
   --amp_type 'torch_amp' \
-  --augmentation 'none' \
-  --info 'MuZero-LavaGap-[6x6]-[obj]-[CR]' \
-  --record_video \
+  --info 'MuZero-baseline' \
   --auto_resume \
   --object_store_mem=1000000000
