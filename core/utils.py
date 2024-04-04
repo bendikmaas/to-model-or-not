@@ -295,7 +295,7 @@ def select_action(logits, model_free, temperature=1, deterministic=True, epsilon
         False -> sample from the distribution
     """
     if model_free:
-        action_probs = softmax(logits / temperature)
+        action_probs = softmax(np.array(logits) / temperature)
     else:
         temperatured_logits = [
             logit ** (1 / temperature) for logit in logits
