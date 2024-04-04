@@ -94,7 +94,7 @@ class BatchWorker_CPU(object):
         reward_value_context = [value_obs_lst, value_mask, state_index_lst, rewards_lst, traj_lens, td_steps_lst]
         return reward_value_context
 
-    def _prepare_policy_non_re_context(self, indices, games, state_index_lst):
+    def _prepare_policy_non_re_context(self, games, state_index_lst):
         """prepare the context of policies for non-reanalyzing part, just return the policy in self-play
         Parameters
         ----------
@@ -105,46 +105,24 @@ class BatchWorker_CPU(object):
         state_index_lst: list
             transition index in game
         """
-        zero_obs = games[0].zero_obs()
-        config = self.config
 
         policies = []
         rewards = []
         actions = []
-        value_obs = []
-        value_mask = []
         traj_lens = []
 
-        for game, state_index, idx in zip(games, state_index_lst, indices):
+        for game in games:
             traj_len = len(game)
             traj_lens.append(traj_len)
-            rewards.append(game.rewards[state_index])
-            actions.append(game.actions[state_index])
+            rewards.append(game.rewards)
+            actions.append(game.actions)
             policies.append(game.policy)
-
-            if config.model_free:
-                # prepare the corresponding observations for bootstrapped values o_{t+k}
-                bootstrap_index = state_index + 1
-                game_obs = game.obs(bootstrap_index, config.num_unroll_steps)
-                for current_index in range(config.num_unroll_steps + 1):
-                    if current_index + bootstrap_index < traj_len:
-                        value_mask.append(1)
-                        beg_index = current_index
-                        end_index = beg_index + config.stacked_observations
-                        obs = game_obs[beg_index:end_index]
-                    else:
-                        value_mask.append(0)
-                        obs = zero_obs
-
-                    value_obs.append(obs)
 
         policy_non_re_context = [
             state_index_lst,
             policies,
             rewards,
             actions,
-            value_obs,
-            value_mask,
             traj_lens,
         ]
         return policy_non_re_context
@@ -260,7 +238,9 @@ class BatchWorker_CPU(object):
         # non reanalyzed policy
         if re_num < batch_size:
             # obtain the context of non-reanalyzed policy targets
-            policy_non_re_context = self._prepare_policy_non_re_context(indices_lst[re_num:], game_lst[re_num:], game_pos_lst[re_num:])
+            policy_non_re_context = self._prepare_policy_non_re_context(
+                game_lst[re_num:], game_pos_lst[re_num:]
+            )
         else:
             policy_non_re_context = None
 
@@ -512,51 +492,27 @@ class BatchWorker_GPU(object):
             policies,
             rewards,
             actions,
-            value_obs,
-            value_mask,
             traj_lens,
         ) = policy_non_re_context
         with torch.no_grad():
-            
-            # If model-free, first get the predicted values for the next state
-            """ if self.config.model_free:
-                stack_obs = prepare_observation_lst(value_obs)
-                if self.config.image_based:
-                    stack_obs = (
-                        torch.from_numpy(stack_obs).to(self.config.device).float()
-                        / 255.0
-                    )
-                else:
-                    stack_obs = torch.from_numpy(np.array(stack_obs)).to(
-                        self.config.device
-                    )
-
-                # Get initial inference
-                if self.config.amp_type == "torch_amp":
-                    with autocast():
-                        network_output = self.model.initial_inference(stack_obs.float())
-                else:
-                    network_output = self.model.initial_inference(stack_obs.float())
-                prediction = network_output.value.squeeze().tolist()
-             """
             policy_mask = []  # 0 -> out of traj, 1 -> old policy
             value_index = 0
-            for traj_len, policy, reward, action, state_index in zip(
-                traj_lens, policies, rewards, actions, state_index_lst
+            for traj_len, policy, reward, action, v_ts, state_index in zip(
+                traj_lens, policies, rewards, actions, target_values, state_index_lst
             ):
                 # traj_len = len(game)
                 target_policies = []
-
+                value_index = 0
                 for current_index in range(state_index, state_index + self.config.num_unroll_steps + 1):
                     if current_index < traj_len:
                         target_policy = policy[current_index].tolist()
+
+                        # If model-free, update the target policy with the Bellman update
                         if self.config.model_free:
-                            """ target_policy[action] += (
-                                reward
-                                + (prediction[current_index] * self.config.discount)
-                                * value_mask[value_index]
-                            ) """
-                            # TODO: calculate refined policy
+                            a = action[current_index]
+                            r = reward[current_index]
+                            v_hat = v_ts[value_index]
+                            target_policy[a] += r + self.config.discount * v_hat
 
                         target_policies.append(target_policy)
                         policy_mask.append(1)
@@ -585,7 +541,7 @@ class BatchWorker_GPU(object):
             # target policy
             batch_policies_re = self._prepare_policy_re(policy_re_context)
             batch_policies_non_re = self._prepare_policy_non_re(policy_non_re_context, batch_values)
-            
+
             if len(batch_policies_re) == 0:
                 batch_policies = batch_policies_non_re
             elif len(batch_policies_non_re) == 0:
