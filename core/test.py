@@ -145,7 +145,7 @@ def test(config, model, counter, test_episodes, device, render,
                 if dones[i]:
                     continue
 
-                deterministic = False if self.config.model_free else True
+                deterministic = False if config.model_free else True
                 distributions, value, env = roots_distributions[i], roots_values[i], envs[i]
                 # select the argmax, not sampling
                 action, _ = select_action(
