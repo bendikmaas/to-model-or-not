@@ -1,5 +1,4 @@
 import os
-import time
 import torch
 import re
 import sys
@@ -55,7 +54,7 @@ class BaseConfig(object):
         start_transitions: int,
         auto_td_steps_ratio: float = 0.3,
         total_transitions: int = 100 * 1000,
-        replay_buffer_size: float = 25,
+        replay_buffer_size: int = 50000,
         model_free: bool = False,
         do_consistency: bool = False,
         do_reconstruction: bool = False,
@@ -243,7 +242,7 @@ class BaseConfig(object):
         self.value_delta_max = value_delta_max
         self.root_dirichlet_alpha = dirichlet_alpha
         self.root_exploration_fraction = 0.25
-        
+
         # Epsilon-greedy
         self.epsilon_max = epsilon_max
         self.epsilon_min = epsilon_min
@@ -313,7 +312,7 @@ class BaseConfig(object):
 
     def visit_softmax_temperature_fn(self, trained_steps):
         raise NotImplementedError
-    
+
     def epsilon_fn(self, trained_steps):
         raise NotImplementedError
 
@@ -419,6 +418,12 @@ class BaseConfig(object):
         self.use_root_value = args.use_root_value
         self.set_game(args.env)
 
+        if self.model_free:
+            self.num_unroll_steps = 1
+            self.td_steps *= 2
+            self.total_transitions = int(self.total_transitions * 1.2)
+            self.training_steps = int(self.training_steps * 1.2)
+
         if not self.do_consistency:
             self.consistency_coeff = 0
             self.augmentation = None
@@ -450,11 +455,11 @@ class BaseConfig(object):
             self.revisit_policy_search_rate = 0
         else:
             self.revisit_policy_search_rate = args.revisit_policy_search_rate
-        
 
-        localtime = time.asctime(time.localtime(time.time()))
-        seed_tag = 'seed={}.img={}.av={}'.format(self.seed, self.image_based, self.agent_view)
-        self.exp_path = os.path.join(args.result_dir, args.case, args.info, args.env, seed_tag)
+        run_tag = f"img={self.image_based}/av={self.agent_view}/mf={self.model_free}/seed={self.seed}"
+        self.exp_path = os.path.join(
+            args.result_dir, args.case, args.env, args.info, run_tag
+        )
 
         self.model_path = args.model_path or os.path.join(self.exp_path, 'model.p')
         self.model_dir = os.path.join(self.exp_path, 'model')

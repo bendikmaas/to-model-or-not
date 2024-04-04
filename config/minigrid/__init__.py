@@ -16,6 +16,8 @@ from .env_wrapper import (
     PartialOneHotObjEncodingWrapper,
     RGBImgObsWrapper,
     RGBImgPartialObsWrapper,
+    RandomizedGoalPosition,
+    RandomizedStartPosition,
     WASDMinigridActionWrapper,
 )
 from core.dataset import Transforms
@@ -33,29 +35,6 @@ OBJECT_TO_COLOR = {
     "box": "yellow",
 }
 
-
-games = {
-    "MiniGrid-LavaGapS5-v0": {
-        "return_bounds": (0.0, 0.988),
-        "grid_size": 5,
-        "encoded_objects": ["unseen", "wall", "empty", "goal", "lava", "agent"],
-    },
-    "MiniGrid-LavaGapS6-v0": {
-        "return_bounds": (0.0, 0.982),
-        "grid_size": 6,
-        "encoded_objects": ["unseen", "wall", "empty", "goal", "lava", "agent"],
-    },
-    "MiniGrid-LavaGapS7-v0": {
-        "return_bounds": (0.0, 0.97625),
-        "grid_size": 7,
-        "encoded_objects": ["wall", "empty", "goal", "lava", "agent"],
-    },
-    "MiniGrid-Empty-5x5-v0": {
-        "return_bounds": (0.0, 0.988),
-        "grid_size": 5,
-        "encoded_objects": ["unseen", "wall", "empty", "goal", "agent"],
-    },
-}
 
 class MinigridConfig(BaseConfig):
     def __init__(self):
@@ -83,7 +62,7 @@ class MinigridConfig(BaseConfig):
             td_steps=5,
             num_actors=4,
             # network initialization/ & normalization
-            model_free=True,
+            model_free=False,
             init_zero=True,
             clip_reward=False,
             # lr scheduler
@@ -95,10 +74,10 @@ class MinigridConfig(BaseConfig):
             # replay window
             start_transitions=2000,
             total_transitions=100 * 1000,
-            replay_buffer_size=5000,
+            replay_buffer_size=50 * 1000,
             # frame skip & stack observation
             frame_skip=1,
-            stacked_observations=1,
+            stacked_observations=4,
             # coefficient
             reward_loss_coeff=1,
             value_loss_coeff=0.25,
@@ -140,9 +119,11 @@ class MinigridConfig(BaseConfig):
         self.downsample = self.image_based
 
         # Minigrid-specific parameters
+        self.random_start_position = False
+        self.random_goal_position = False
         self.agent_view = False
-        self.agent_view_size = 3
-        self.num_train_levels = 10
+        self.agent_view_size = 5
+        self.num_train_levels = 9
         self.num_levels_per_actor = self.num_train_levels // self.num_actors
         self.action_space_size = 3 if self.agent_view or self.image_based else 4
 
@@ -156,7 +137,7 @@ class MinigridConfig(BaseConfig):
                 return 0.5
         else:
             return 1.0
-    
+
     def epsilon_fn(self, trained_steps):
         if self.model_free:
             return max(self.epsilon_min, self.epsilon_max - (self.epsilon_decay_rate * trained_steps))
@@ -265,6 +246,11 @@ class MinigridConfig(BaseConfig):
             agent_view_size=self.agent_view_size,
             max_episode_steps=self.max_moves,
         )
+
+        if self.random_start_position:
+            env = RandomizedStartPosition(env)
+        if self.random_goal_position:
+            env = RandomizedGoalPosition(env)
 
         # Remove highlight if not agent view
         if not self.agent_view:

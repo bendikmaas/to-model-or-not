@@ -64,85 +64,141 @@ if __name__ == '__main__':
     args.device = 'cuda' if (not args.no_cuda) and torch.cuda.is_available() else 'cpu'
     assert args.revisit_policy_search_rate is None or 0 <= args.revisit_policy_search_rate <= 1, \
         ' Revisit policy search rate should be in [0,1]'
+    for image_based in [False, True]:
+        for agent_view in [False, True]:
+            for model_free in [False, True]:
+                if args.opr == "train":
+                    ray.init(num_gpus=args.num_gpus, num_cpus=args.num_cpus)
+                else:
+                    ray.init()
 
-    if args.opr == 'train':
-        ray.init(num_gpus=args.num_gpus, num_cpus=args.num_cpus)
-    else:
-        ray.init()
+                # seeding random iterators
+                set_seed(args.seed)
 
-    # seeding random iterators
-    set_seed(args.seed)
+                # import corresponding configuration , neural networks and envs
+                if args.case == "atari":
+                    from config.atari import game_config
+                elif args.case == "procgen":
+                    from config.procgen import game_config
+                elif args.case == "minigrid":
+                    from config.minigrid import game_config
+                else:
+                    raise Exception("Invalid --case option")
 
-    # import corresponding configuration , neural networks and envs
-    if args.case == 'atari':
-        from config.atari import game_config
-    elif args.case == 'procgen':
-        from config.procgen import game_config
-    elif args.case == 'minigrid':
-        from config.minigrid import game_config
-    else:
-        raise Exception('Invalid --case option')
+                # set run specific parameters
+                game_config.image_based = image_based
+                game_config.agent_view = agent_view
+                game_config.model_free = model_free
 
-    # set config as per arguments
-    exp_path = game_config.set_config(args)
-    exp_path, log_base_path = make_results_dir(exp_path, args)
+                # set config as per arguments
+                exp_path = game_config.set_config(args)
+                exp_path, log_base_path = make_results_dir(exp_path, args)
 
-    # set-up logger
-    init_logger(log_base_path)
-    logging.getLogger('train').info('Path: {}'.format(exp_path))
-    logging.getLogger('train').info('Param: {}'.format(game_config.get_hparams()))
+                # set-up logger
+                init_logger(log_base_path)
+                logging.getLogger("train").info("Path: {}".format(exp_path))
+                logging.getLogger("train").info(
+                    "Param: {}".format(game_config.get_hparams())
+                )
 
-    device = game_config.device
-    try:
-        if args.opr == 'train':
-            summary_writer = SummaryWriter(exp_path, flush_secs=10)
-            should_load = args.load_model or game_config.auto_resume
-            if should_load and os.path.exists(game_config.model_path):
-                model_path = game_config.model_path
-            else:
-                model_path = None
-            model, weights = train(game_config, summary_writer, model_path)
-            model.set_weights(weights)
-            total_steps = game_config.training_steps + game_config.last_steps
-            test_score, test_path = test(game_config, model.to(device), total_steps, game_config.test_episodes,
-                                         device, render=True, record_video=args.record_video, recording_interval=game_config.recording_interval, 
-                                         final_test=True, use_pb=True)
-            mean_score = test_score.mean()
-            std_score = test_score.std()
+                device = game_config.device
+                try:
+                    if args.opr == "train":
+                        summary_writer = SummaryWriter(exp_path, flush_secs=10)
+                        should_load = args.load_model or game_config.auto_resume
+                        if should_load and os.path.exists(game_config.model_path):
+                            model_path = game_config.model_path
+                        else:
+                            model_path = None
+                        model, weights = train(game_config, summary_writer, model_path)
+                        model.set_weights(weights)
+                        total_steps = (
+                            game_config.training_steps + game_config.last_steps
+                        )
+                        test_score, test_path = test(
+                            game_config,
+                            model.to(device),
+                            total_steps,
+                            game_config.test_episodes,
+                            device,
+                            render=True,
+                            record_video=args.record_video,
+                            recording_interval=game_config.recording_interval,
+                            final_test=True,
+                            use_pb=True,
+                        )
+                        mean_score = test_score.mean()
+                        std_score = test_score.std()
 
-            test_log = {
-                'mean_score': mean_score,
-                'std_score': std_score,
-            }
-            for key, val in test_log.items():
-                summary_writer.add_scalar('train/{}'.format(key), np.mean(val), total_steps)
+                        test_log = {
+                            "mean_score": mean_score,
+                            "std_score": std_score,
+                        }
+                        for key, val in test_log.items():
+                            summary_writer.add_scalar(
+                                "train/{}".format(key), np.mean(val), total_steps
+                            )
 
-            test_msg = '#{:<10} Test Mean Score of {}: {:<10} (max: {:<10}, min:{:<10}, std: {:<10})' \
-                       ''.format(total_steps, game_config.env_name, mean_score, test_score.max(), test_score.min(), std_score)
-            logging.getLogger('train_test').info(test_msg)
-            if args.record_video:
-                logging.getLogger('train_test').info('Saving video in path: {}'.format(test_path))
-        elif args.opr == 'test':
-            assert args.load_model
-            if args.model_path is None:
-                model_path = game_config.model_path
-            else:
-                model_path = args.model_path
-            assert os.path.exists(model_path), 'model not found at {}'.format(model_path)
+                        test_msg = (
+                            "#{:<10} Test Mean Score of {}: {:<10} (max: {:<10}, min:{:<10}, std: {:<10})"
+                            "".format(
+                                total_steps,
+                                game_config.env_name,
+                                mean_score,
+                                test_score.max(),
+                                test_score.min(),
+                                std_score,
+                            )
+                        )
+                        logging.getLogger("train_test").info(test_msg)
+                        if args.record_video:
+                            logging.getLogger("train_test").info(
+                                "Saving video in path: {}".format(test_path)
+                            )
+                    elif args.opr == "test":
+                        assert args.load_model
+                        if args.model_path is None:
+                            model_path = game_config.model_path
+                        else:
+                            model_path = args.model_path
+                        assert os.path.exists(
+                            model_path
+                        ), "model not found at {}".format(model_path)
 
-            model = game_config.get_uniform_network().to(device)
-            model.load_state_dict(torch.load(model_path, map_location=torch.device(device)))
-            test_score, test_path = test(game_config, model, 0, args.test_episodes, device=device, render=args.render,
-                                         record_video=args.record_video, recording_interval=game_config.recording_interval,
-                                         final_test=True, use_pb=True)
-            mean_score = test_score.mean()
-            std_score = test_score.std()
-            logging.getLogger('test').info('Test Mean Score: {} (max: {}, min: {})'.format(mean_score, test_score.max(), test_score.min()))
-            logging.getLogger('test').info('Test Std Score: {}'.format(std_score))
-            if args.record_video:
-                logging.getLogger('test').info('Saving video in path: {}'.format(test_path))
-        else:
-            raise Exception('Please select a valid operation(--opr) to be performed')
-        ray.shutdown()
-    except Exception as e:
-        logging.getLogger('root').error(e, exc_info=True)
+                        model = game_config.get_uniform_network().to(device)
+                        model.load_state_dict(
+                            torch.load(model_path, map_location=torch.device(device))
+                        )
+                        test_score, test_path = test(
+                            game_config,
+                            model,
+                            0,
+                            args.test_episodes,
+                            device=device,
+                            render=args.render,
+                            record_video=args.record_video,
+                            recording_interval=game_config.recording_interval,
+                            final_test=True,
+                            use_pb=True,
+                        )
+                        mean_score = test_score.mean()
+                        std_score = test_score.std()
+                        logging.getLogger("test").info(
+                            "Test Mean Score: {} (max: {}, min: {})".format(
+                                mean_score, test_score.max(), test_score.min()
+                            )
+                        )
+                        logging.getLogger("test").info(
+                            "Test Std Score: {}".format(std_score)
+                        )
+                        if args.record_video:
+                            logging.getLogger("test").info(
+                                "Saving video in path: {}".format(test_path)
+                            )
+                    else:
+                        raise Exception(
+                            "Please select a valid operation(--opr) to be performed"
+                        )
+                    ray.shutdown()
+                except Exception as e:
+                    logging.getLogger("root").error(e, exc_info=True)
