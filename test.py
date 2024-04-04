@@ -340,8 +340,6 @@ if __name__ == '__main__':
     else:
         raise Exception('Invalid --case option')
 
-    # set config as per arguments
-    from torchsummary import summary
 
     exp_path = game_config.set_config(args)
     model = game_config.get_uniform_network()

@@ -276,23 +276,39 @@ def init_logger(base_path):
         logger.setLevel(logging.DEBUG)
 
 
-def select_action(visit_counts, temperature=1, deterministic=True):
+def softmax(logits):
+    """Compute softmax probabilities from logits."""
+    max_logit = np.max(logits)
+    exp_logits = np.exp(logits - max_logit)
+    return exp_logits / np.sum(exp_logits)
+
+def select_action(logits, model_free, temperature=1, deterministic=True, epsilon=0.0):
     """select action from the root visit counts.
     Parameters
     ----------
+    model_free: bool
+        True -> model free
     temperature: float
         the temperature for the distribution
     deterministic: bool
         True -> select the argmax
         False -> sample from the distribution
     """
-    action_probs = [visit_count_i ** (1 / temperature) for visit_count_i in visit_counts]
-    total_count = sum(action_probs)
-    action_probs = [x / total_count for x in action_probs]
-    if deterministic:
-        action_pos = np.argmax([v for v in visit_counts])
+    if model_free:
+        action_probs = softmax(np.array(logits) / temperature)
     else:
-        action_pos = np.random.choice(len(visit_counts), p=action_probs)
+        temperatured_logits = [
+            logit ** (1 / temperature) for logit in logits
+        ]
+        total_sum = np.sum(temperatured_logits)
+        action_probs = [x / total_sum for x in temperatured_logits]
+    
+    if deterministic:
+        action_pos = np.argmax(action_probs)
+    #elif model_free and np.random.rand() < epsilon:
+    #    action_pos = np.random.choice(len(logits))
+    else:
+        action_pos = np.random.choice(len(logits), p=action_probs)
 
     count_entropy = entropy(action_probs, base=2)
     return action_pos, count_entropy

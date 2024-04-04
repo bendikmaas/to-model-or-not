@@ -25,7 +25,7 @@ class TestWorker(object):
         self.test_runs = 0
         self.test_model = self.config.get_uniform_network()
         self.record_video = record_video
-        
+
         self.save_path = os.path.join(config.exp_path, 'recordings')
         self.envs = [config.new_game(seed=config.seed,
                                     env_idx=i,
@@ -34,7 +34,7 @@ class TestWorker(object):
                                          recording_interval=10,
                                          test=True
                                 ) for i in range(config.test_episodes)]
-        
+
     def _test(self):
         while True:
             counter = ray.get(self.shared_storage.get_training_step_counter.remote())
@@ -53,12 +53,10 @@ class TestWorker(object):
                 mean_return = episode_returns.mean()
                 std_return = episode_returns.std()
                 normalized_return = (mean_return - self.config.min_return) / (self.config.max_return - self.config.min_return)
-                
+
                 if mean_return >= self.best_mean_return:
                     self.best_mean_return = mean_return
                     torch.save(self.test_model.state_dict(), self.config.model_path)
-                
-                
 
                 test_log = {
                     'mean_test_return': mean_return,
@@ -67,12 +65,11 @@ class TestWorker(object):
                     'max_test_return': episode_returns.max(),
                     'min_test_return': episode_returns.min(),
                 }
-                
 
                 self.shared_storage.add_test_log.remote(counter, test_log)
 
             time.sleep(10)
-            
+
     def test(self, counter, render=False, final_test=False,  use_pb=False):
         """Evaluation test that runs every config.test_interval-th step.
         Parameters
@@ -96,7 +93,7 @@ class TestWorker(object):
 
         with torch.no_grad():
             envs = self.envs
-            
+
             # Initialize environments and trajectories
             init_obses = [env.reset() for env in envs]
             dones = np.array([False for _ in range(test_episodes)])
@@ -106,7 +103,7 @@ class TestWorker(object):
                 range(test_episodes)]
             for i in range(test_episodes):
                 game_histories[i].init([init_obses[i] for _ in range(self.config.stacked_observations)])
-            
+
             # Loop until all episodes are done
             step = 0
             episode_returns = np.zeros(test_episodes)
@@ -127,20 +124,38 @@ class TestWorker(object):
                 value_prefix_pool = network_output.value_prefix
                 policy_logits_pool = network_output.policy_logits.tolist()
 
-                # Do MCTS to obtain a policy, using argmax since testing
-                roots = cytree.Roots(test_episodes, self.config.action_space_size, self.config.num_simulations)
-                roots.prepare_no_noise(value_prefix_pool, policy_logits_pool)
-                MCTS(self.config).search(roots, model, hidden_state_roots, reward_hidden_roots)
+                if not self.config.model_free:
 
-                roots_distributions = roots.get_distributions()
-                roots_values = roots.get_values()
+                    # Do MCTS to obtain a policy, using argmax since testing
+                    roots = cytree.Roots(
+                        test_episodes,
+                        self.config.action_space_size,
+                        self.config.num_simulations,
+                    )
+                    roots.prepare_no_noise(value_prefix_pool, policy_logits_pool)
+                    MCTS(self.config).search(
+                        roots, model, hidden_state_roots, reward_hidden_roots
+                    )
+
+                    roots_distributions = roots.get_distributions()
+                    roots_values = roots.get_values()
+                else:
+                    roots_distributions = policy_logits_pool
+                    roots_values = value_prefix_pool
+
                 for i in range(test_episodes):
                     if dones[i]:
                         continue
 
                     # Select action
+                    deterministic = False if self.config.model_free else True
                     distributions, value, env = roots_distributions[i], roots_values[i], envs[i]
-                    action, _ = select_action(distributions, temperature=1, deterministic=True)
+                    action, _ = select_action(
+                        distributions,
+                        self.config.model_free,
+                        temperature=1,
+                        deterministic=deterministic,
+                    )
 
                     # Step environment and obtain reward
                     obs, reward, done, _ = env.step(action)
@@ -149,7 +164,10 @@ class TestWorker(object):
                     else:
                         clipped_reward = reward
 
-                    game_histories[i].store_search_stats(distributions, value)
+                    if self.config.model_free:
+                        game_histories[i].store_inference_stats(distributions, value)
+                    else:
+                        game_histories[i].store_search_stats(distributions, value)
                     game_histories[i].append(action, obs, clipped_reward)
 
                     dones[i] = done
@@ -157,14 +175,19 @@ class TestWorker(object):
 
                 step += 1
                 if use_pb:
-                    pb.set_description('{} In step {}, scores: {}(max: {}, min: {}) currently.'
-                                      ''.format(config.env_name, counter,
-                                                episode_returns.mean(), episode_returns.max(), episode_returns.min()))
+                    pb.set_description(
+                        "{} In step {}, scores: {}(max: {}, min: {}) currently."
+                        "".format(
+                            self.config.env_name,
+                            counter,
+                            episode_returns.mean(),
+                            episode_returns.max(),
+                            episode_returns.min(),
+                        )
+                    )
                     pb.update(1)
 
             for env in envs:
                 env.reset()
-        
+
         return episode_returns, save_path
-              
-      

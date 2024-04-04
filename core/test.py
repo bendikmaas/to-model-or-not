@@ -125,20 +125,32 @@ def test(config, model, counter, test_episodes, device, render,
             value_prefix_pool = network_output.value_prefix
             policy_logits_pool = network_output.policy_logits.tolist()
 
-            roots = cytree.Roots(test_episodes, config.action_space_size, config.num_simulations)
-            roots.prepare_no_noise(value_prefix_pool, policy_logits_pool)
-            # do MCTS for a policy (argmax in testing)
-            MCTS(config).search(roots, model, hidden_state_roots, reward_hidden_roots)
+            if not config.model_free:
+                roots = cytree.Roots(
+                    test_episodes, config.action_space_size, config.num_simulations
+                )
+                roots.prepare_no_noise(value_prefix_pool, policy_logits_pool)
+                # do MCTS for a policy (argmax in testing)
+                MCTS(config).search(
+                    roots, model, hidden_state_roots, reward_hidden_roots
+                )
 
-            roots_distributions = roots.get_distributions()
-            roots_values = roots.get_values()
+                roots_distributions = roots.get_distributions()
+                roots_values = roots.get_values()
+            else:
+                roots_distributions = policy_logits_pool
+                roots_values = value_prefix_pool
+
             for i in range(test_episodes):
                 if dones[i]:
                     continue
 
+                deterministic = False if self.config.model_free else True
                 distributions, value, env = roots_distributions[i], roots_values[i], envs[i]
                 # select the argmax, not sampling
-                action, _ = select_action(distributions, temperature=1, deterministic=True)
+                action, _ = select_action(
+                    distributions, config.model_free, temperature=1, deterministic=deterministic
+                )
 
                 obs, ori_reward, done, info = env.step(action)
                 if config.clip_reward:
@@ -146,7 +158,10 @@ def test(config, model, counter, test_episodes, device, render,
                 else:
                     clip_reward = ori_reward
 
-                game_histories[i].store_search_stats(distributions, value)
+                if config.model_free:
+                    game_histories[i].store_inference_stats(distributions, value)
+                else:
+                    game_histories[i].store_search_stats(distributions, value)
                 game_histories[i].append(action, obs, clip_reward)
 
                 dones[i] = done

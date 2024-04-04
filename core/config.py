@@ -42,6 +42,8 @@ class BaseConfig(object):
         discount: float,
         dirichlet_alpha: float,
         value_delta_max: float,
+        epsilon_max: float,
+        epsilon_min: float,
         num_simulations: int,
         batch_size: int,
         td_steps: int,
@@ -54,8 +56,9 @@ class BaseConfig(object):
         auto_td_steps_ratio: float = 0.3,
         total_transitions: int = 100 * 1000,
         replay_buffer_size: float = 25,
-        do_consistency: bool = True,
-        do_reconstruction: bool = True,
+        model_free: bool = False,
+        do_consistency: bool = False,
+        do_reconstruction: bool = False,
         use_value_prefix: bool = False,
         off_correction: bool = False,
         gray_scale: bool = False,
@@ -148,6 +151,8 @@ class BaseConfig(object):
             total number of collected transitions. (100k setting)
         replay_buffer_size: float
             capacity of transitions in replay buffer
+        model_free: bool
+            True -> model-free training
         do_consistency: bool
             True -> use temporal consistency
         do_reconstruction: bool
@@ -206,6 +211,7 @@ class BaseConfig(object):
         # Self-Play
         self.action_space_size = None
         self.num_actors = num_actors
+        self.model_free = model_free
         self.do_consistency = do_consistency
         self.do_reconstruction = do_reconstruction
         self.use_value_prefix = use_value_prefix
@@ -237,6 +243,11 @@ class BaseConfig(object):
         self.value_delta_max = value_delta_max
         self.root_dirichlet_alpha = dirichlet_alpha
         self.root_exploration_fraction = 0.25
+        
+        # Epsilon-greedy
+        self.epsilon_max = epsilon_max
+        self.epsilon_min = epsilon_min
+        self.epsilon_decay_rate = (epsilon_max - epsilon_min) / training_steps
 
         # UCB formula
         self.pb_c_base = 19652
@@ -301,6 +312,9 @@ class BaseConfig(object):
         self.pred_out = pred_out
 
     def visit_softmax_temperature_fn(self, trained_steps):
+        raise NotImplementedError
+    
+    def epsilon_fn(self, trained_steps):
         raise NotImplementedError
 
     def set_game(self, env_name):
@@ -432,11 +446,14 @@ class BaseConfig(object):
         else:
             self.use_augmentation = False
 
-        if args.revisit_policy_search_rate is not None:
+        if args.revisit_policy_search_rate is None or self.model_free:
+            self.revisit_policy_search_rate = 0
+        else:
             self.revisit_policy_search_rate = args.revisit_policy_search_rate
+        
 
         localtime = time.asctime(time.localtime(time.time()))
-        seed_tag = 'seed={}'.format(self.seed)
+        seed_tag = 'seed={}.img={}.av={}'.format(self.seed, self.image_based, self.agent_view)
         self.exp_path = os.path.join(args.result_dir, args.case, args.info, args.env, seed_tag)
 
         self.model_path = args.model_path or os.path.join(self.exp_path, 'model.p')

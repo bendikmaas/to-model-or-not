@@ -76,11 +76,14 @@ class MinigridConfig(BaseConfig):
             discount=0.997,
             dirichlet_alpha=0.3,
             value_delta_max=0.01,
+            epsilon_max=0.99,
+            epsilon_min=0.05,
             num_simulations=50,
             batch_size=256,
             td_steps=5,
             num_actors=4,
             # network initialization/ & normalization
+            model_free=True,
             init_zero=True,
             clip_reward=False,
             # lr scheduler
@@ -153,6 +156,12 @@ class MinigridConfig(BaseConfig):
                 return 0.5
         else:
             return 1.0
+    
+    def epsilon_fn(self, trained_steps):
+        if self.model_free:
+            return max(self.epsilon_min, self.epsilon_max - (self.epsilon_decay_rate * trained_steps))
+        else:
+            return 0.0
 
     def set_game(self, env_name):
         self.env_name = env_name
