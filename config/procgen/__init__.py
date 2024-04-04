@@ -48,9 +48,9 @@ class ProcgenConfig(BaseConfig):
             lr_decay_steps=50000,
             auto_td_steps_ratio=0.3,
             # replay window
-            start_transitions=8,
+            start_transitions=8000,
             total_transitions=100 * 1000,
-            transition_num=1,
+            replay_buffer_size=1e4,
             # frame skip & stack observation
             frame_skip=2,
             stacked_observations=4,
@@ -72,7 +72,7 @@ class ProcgenConfig(BaseConfig):
         self.test_max_moves //= self.frame_skip
 
 
-        self.start_transitions = self.start_transitions * 1000 // self.frame_skip
+        self.start_transitions = self.start_transitions // self.frame_skip
         self.start_transitions = max(1, self.start_transitions)
 
         self.bn_mt = 0.1  # BatchNorm momentum

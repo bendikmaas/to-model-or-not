@@ -55,7 +55,7 @@ class BaseConfig(object):
         start_transitions: int,
         auto_td_steps_ratio: float = 0.3,
         total_transitions: int = 100 * 1000,
-        transition_num: float = 25,
+        replay_buffer_size: float = 25,
         model_free: bool = False,
         do_consistency: bool = False,
         do_reconstruction: bool = False,
@@ -149,7 +149,7 @@ class BaseConfig(object):
             See the details of off-policy correction in Appendix.
         total_transitions: int
             total number of collected transitions. (100k setting)
-        transition_num: float
+        replay_buffer_size: float
             capacity of transitions in replay buffer
         model_free: bool
             True -> model-free training
@@ -264,7 +264,7 @@ class BaseConfig(object):
         self.vis_interval = vis_interval
         self.start_transitions = start_transitions
         self.total_transitions = total_transitions
-        self.transition_num = transition_num
+        self.replay_buffer_size = replay_buffer_size
         self.batch_size = batch_size
         # unroll steps
         self.num_unroll_steps = 5

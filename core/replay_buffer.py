@@ -20,7 +20,7 @@ class ReplayBuffer(object):
         self.batch_size = config.batch_size
         self.keep_ratio = 1
         self.alpha = config.priority_prob_alpha
-        self.transition_top = int(config.transition_num * 10 ** 6)
+        self.transition_top = config.replay_buffer_size
 
         # mutable
         self.buffer = []  # Raw episodes from gym
