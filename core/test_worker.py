@@ -148,12 +148,13 @@ class TestWorker(object):
                         continue
 
                     # Select action
+                    deterministic = False if self.config.model_free else True
                     distributions, value, env = roots_distributions[i], roots_values[i], envs[i]
                     action, _ = select_action(
                         distributions,
                         self.config.model_free,
                         temperature=1,
-                        deterministic=True,
+                        deterministic=deterministic,
                     )
 
                     # Step environment and obtain reward
