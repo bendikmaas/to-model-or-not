@@ -41,7 +41,9 @@ class BatchWorker_CPU(object):
         self.batch_max_num = 20
         self.beta_schedule = LinearSchedule(config.training_steps + config.last_steps, initial_p=config.priority_prob_beta, final_p=1.0)
 
-    def _prepare_reward_value_context(self, indices, games, state_index_lst, total_transitions):
+    def _get_reward_value_targets_context(
+        self, indices, games, state_index_lst, total_transitions
+    ):
         """prepare the context of rewards and values for reanalyzing part
         Parameters
         ----------
@@ -94,7 +96,7 @@ class BatchWorker_CPU(object):
         reward_value_context = [value_obs_lst, value_mask, state_index_lst, rewards_lst, traj_lens, td_steps_lst]
         return reward_value_context
 
-    def _prepare_policy_non_re_context(self, games, state_index_lst):
+    def _get_policy_targets_context(self, games, state_index_lst):
         """prepare the context of policies for non-reanalyzing part, just return the policy in self-play
         Parameters
         ----------
@@ -127,7 +129,7 @@ class BatchWorker_CPU(object):
         ]
         return policy_non_re_context
 
-    def _prepare_policy_re_context(self, indices, games, state_index_lst):
+    def _get_reanalyzed_policy_targets_context(self, indices, games, state_index_lst):
         """prepare the context of policies for reanalyzing part
         Parameters
         ----------
@@ -225,20 +227,24 @@ class BatchWorker_CPU(object):
         total_transitions = ray.get(self.replay_buffer.get_total_len.remote())
 
         # obtain the context of value targets
-        reward_value_context = self._prepare_reward_value_context(indices_lst, game_lst, game_pos_lst, total_transitions)
+        reward_value_context = self._get_reward_value_targets_context(
+            indices_lst, game_lst, game_pos_lst, total_transitions
+        )
 
         # 0:re_num -> reanalyzed policy, re_num:end -> non reanalyzed policy
         # reanalyzed policy
         if re_num > 0:
             # obtain the context of reanalyzed policy targets
-            policy_re_context = self._prepare_policy_re_context(indices_lst[:re_num], game_lst[:re_num], game_pos_lst[:re_num])
+            policy_re_context = self._get_reanalyzed_policy_targets_context(
+                indices_lst[:re_num], game_lst[:re_num], game_pos_lst[:re_num]
+            )
         else:
             policy_re_context = None
 
         # non reanalyzed policy
         if re_num < batch_size:
             # obtain the context of non-reanalyzed policy targets
-            policy_non_re_context = self._prepare_policy_non_re_context(
+            policy_non_re_context = self._get_policy_targets_context(
                 game_lst[re_num:], game_pos_lst[re_num:]
             )
         else:
@@ -323,7 +329,7 @@ class BatchWorker_GPU(object):
 
         self.last_model_index = 0
 
-    def _prepare_reward_value(self, reward_value_context):
+    def _get_reward_value_targets(self, reward_value_context):
         """prepare reward and value targets from the context of rewards and values
         """
         value_obs_lst, value_mask, state_index_lst, rewards_lst, traj_lens, td_steps_lst = reward_value_context
@@ -412,7 +418,7 @@ class BatchWorker_GPU(object):
         batch_values = np.asarray(batch_values)
         return batch_value_prefixs, batch_values
 
-    def _prepare_policy_re(self, policy_re_context):
+    def _get_reanalyzed_policy_targets(self, policy_re_context):
         """prepare policy targets from the reanalyzed context of policies
         """
         batch_policies_re = []
@@ -479,7 +485,7 @@ class BatchWorker_GPU(object):
         batch_policies_re = np.asarray(batch_policies_re)
         return batch_policies_re
 
-    def _prepare_policy_non_re(self, policy_non_re_context, target_values):
+    def _get_policy_targets(self, policy_non_re_context, target_values):
         """prepare policy targets from the non-reanalyzed context of policies
         """
 
@@ -525,7 +531,7 @@ class BatchWorker_GPU(object):
         batch_policies_non_re = np.asarray(batch_policies_non_re)
         return batch_policies_non_re
 
-    def _prepare_target_gpu(self):
+    def _get_training_targets(self):
         input_countext = self.mcts_storage.pop()
         if input_countext is None:
             time.sleep(1)
@@ -537,10 +543,14 @@ class BatchWorker_GPU(object):
                 self.model.eval()
 
             # target reward, value
-            batch_value_prefixs, batch_values = self._prepare_reward_value(reward_value_context)
+            batch_value_prefixs, batch_values = self._get_reward_value_targets(
+                reward_value_context
+            )
             # target policy
-            batch_policies_re = self._prepare_policy_re(policy_re_context)
-            batch_policies_non_re = self._prepare_policy_non_re(policy_non_re_context, batch_values)
+            batch_policies_re = self._get_reanalyzed_policy_targets(policy_re_context)
+            batch_policies_non_re = self._get_policy_targets(
+                policy_non_re_context, batch_values
+            )
 
             if len(batch_policies_re) == 0:
                 batch_policies = batch_policies_non_re
@@ -573,4 +583,4 @@ class BatchWorker_GPU(object):
                 time.sleep(30)
                 break
 
-            self._prepare_target_gpu()
+            self._get_training_targets()
