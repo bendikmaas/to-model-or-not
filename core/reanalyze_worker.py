@@ -499,7 +499,7 @@ class BatchWorker_GPU(object):
         batch_policies_re = np.asarray(batch_policies_re)
         return batch_policies_re
 
-    def _prepare_policy_non_re(self, policy_non_re_context):
+    def _prepare_policy_non_re(self, policy_non_re_context, target_values):
         """prepare policy targets from the non-reanalyzed context of policies
         """
 
@@ -519,7 +519,7 @@ class BatchWorker_GPU(object):
         with torch.no_grad():
             
             # If model-free, first get the predicted values for the next state
-            if self.config.model_free:
+            """ if self.config.model_free:
                 stack_obs = prepare_observation_lst(value_obs)
                 if self.config.image_based:
                     stack_obs = (
@@ -538,7 +538,7 @@ class BatchWorker_GPU(object):
                 else:
                     network_output = self.model.initial_inference(stack_obs.float())
                 prediction = network_output.value.squeeze().tolist()
-
+             """
             policy_mask = []  # 0 -> out of traj, 1 -> old policy
             value_index = 0
             for traj_len, policy, reward, action, state_index in zip(
@@ -551,11 +551,12 @@ class BatchWorker_GPU(object):
                     if current_index < traj_len:
                         target_policy = policy[current_index].tolist()
                         if self.config.model_free:
-                            target_policy[action] += (
+                            """ target_policy[action] += (
                                 reward
                                 + (prediction[current_index] * self.config.discount)
                                 * value_mask[value_index]
-                            )
+                            ) """
+                            # TODO: calculate refined policy
 
                         target_policies.append(target_policy)
                         policy_mask.append(1)
@@ -583,7 +584,7 @@ class BatchWorker_GPU(object):
             batch_value_prefixs, batch_values = self._prepare_reward_value(reward_value_context)
             # target policy
             batch_policies_re = self._prepare_policy_re(policy_re_context)
-            batch_policies_non_re = self._prepare_policy_non_re(policy_non_re_context)
+            batch_policies_non_re = self._prepare_policy_non_re(policy_non_re_context, batch_values)
             
             if len(batch_policies_re) == 0:
                 batch_policies = batch_policies_non_re
