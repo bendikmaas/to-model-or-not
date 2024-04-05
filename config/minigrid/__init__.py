@@ -125,7 +125,6 @@ class MinigridConfig(BaseConfig):
         self.agent_view_size = 5
         self.num_train_levels = 9
         self.num_levels_per_actor = self.num_train_levels // self.num_actors
-        self.action_space_size = 3 if self.agent_view or self.image_based else 4
 
     def visit_softmax_temperature_fn(self, trained_steps):
         if self.change_temperature:
@@ -205,6 +204,7 @@ class MinigridConfig(BaseConfig):
 
         # TODO: Make bounds more precise
         self.min_return, self.max_return = env.unwrapped.reward_range
+        self.action_space_size = 3 if self.agent_view or self.image_based else 4
 
     def get_uniform_network(self):
         return EfficientZeroNet(

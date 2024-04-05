@@ -54,7 +54,7 @@ class BaseConfig(object):
         start_transitions: int,
         auto_td_steps_ratio: float = 0.3,
         total_transitions: int = 100 * 1000,
-        replay_buffer_size: int = 50000,
+        replay_buffer_size: int = 250 * 1000,
         model_free: bool = False,
         do_consistency: bool = False,
         do_reconstruction: bool = False,
@@ -416,13 +416,18 @@ class BaseConfig(object):
         self.auto_resume = args.auto_resume
         self.p_mcts_num = args.p_mcts_num
         self.use_root_value = args.use_root_value
-        self.set_game(args.env)
 
         if self.model_free:
             self.num_unroll_steps = 1
-            self.td_steps *= 2
-            self.total_transitions = int(self.total_transitions * 1.2)
-            self.training_steps = int(self.training_steps * 1.2)
+            self.td_steps = 10
+            self.total_transitions = 120 * 1000
+            self.training_steps = 24 * 1000
+        else:
+            self.num_unroll_steps = 5
+            self.td_steps = 5
+            self.total_transitions = 100 * 1000
+            self.training_steps = 20 * 1000
+        self.set_game(args.env)
 
         if not self.do_consistency:
             self.consistency_coeff = 0
