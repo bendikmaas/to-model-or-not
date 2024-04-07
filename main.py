@@ -66,7 +66,7 @@ if __name__ == '__main__':
         ' Revisit policy search rate should be in [0,1]'
     for image_based in [False, True]:
         for agent_view in [False, True]:
-            for model_free in [False, True]:
+            for model_free in [False]:
                 if args.opr == "train":
                     ray.init(num_gpus=args.num_gpus, num_cpus=args.num_cpus)
                 else:
