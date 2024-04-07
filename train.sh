@@ -21,8 +21,8 @@ export CUDA_VISIBLE_DEVICES=$(echo "$GPU_MEM_INFO" | awk -F "," '{print $1}' | p
 #  1. Leave CPU actors at 1, and increase GPU actors until GPU full according
 #     to `ray satus`
 #  2. Increase CPU actors until CPU full.
-GPU_ACTORS=6
-CPU_ACTORS=20
+GPU_ACTORS=2
+CPU_ACTORS=42
 
 # Run script
 python main.py --env "MiniGrid-LavaGapS7-v0" --case minigrid --opr train \
