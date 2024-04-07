@@ -62,7 +62,7 @@ class BaseConfig(object):
         off_correction: bool = False,
         gray_scale: bool = False,
         episode_life: bool = False,
-        change_temperature: bool = True,
+        change_temperature: bool = False,
         init_zero: bool = False,
         state_norm: bool = False,
         clip_reward: bool = False,

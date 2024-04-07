@@ -40,7 +40,7 @@ class MinigridConfig(BaseConfig):
     def __init__(self):
         super(MinigridConfig, self).__init__(
             training_steps=20000,
-            last_steps=4000,
+            last_steps=0,
             test_interval=500,
             log_interval=100,
             vis_interval=300000,
@@ -68,7 +68,7 @@ class MinigridConfig(BaseConfig):
             # lr scheduler
             lr_warm_up=0.01,
             lr_init=0.2,
-            lr_decay_rate=0.1,
+            lr_decay_rate=0.5,
             lr_decay_steps=10000,
             auto_td_steps_ratio=0.3,
             # replay window
