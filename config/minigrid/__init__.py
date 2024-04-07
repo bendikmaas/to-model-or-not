@@ -115,9 +115,6 @@ class MinigridConfig(BaseConfig):
         self.resnet_fc_value_layers = [32]
         self.resnet_fc_policy_layers = [32]
 
-        # Downsample observations before representation network (See paper appendix Network Architecture)
-        self.downsample = self.image_based
-
         # Minigrid-specific parameters
         self.random_start_position = False
         self.random_goal_position = False
