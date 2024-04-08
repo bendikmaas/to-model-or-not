@@ -426,7 +426,7 @@ class BaseConfig(object):
             self.num_unroll_steps = 5
             self.td_steps = 5
             self.total_transitions = 100 * 1000
-            self.training_steps = 20 * 1000
+            self.training_steps = 15 * 1000
         
         # Downsample observations before representation network (See paper appendix Network Architecture)
         self.downsample = self.image_based
