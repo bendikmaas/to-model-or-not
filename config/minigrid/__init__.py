@@ -39,9 +39,9 @@ N_TRAIN_LEVELS = 9
 class MinigridConfig(BaseConfig):
     def __init__(self):
         super(MinigridConfig, self).__init__(
-            training_steps=15 * 1000,
+            training_steps=20 * 1000,
             last_steps=0,
-            test_interval=500,
+            test_interval=250,
             log_interval=100,
             vis_interval=300000,
             test_episodes=32,
@@ -57,7 +57,7 @@ class MinigridConfig(BaseConfig):
             value_delta_max=0.01,
             epsilon_max=0.99,
             epsilon_min=0.05,
-            num_simulations=25,
+            num_simulations=50,
             batch_size=256,
             td_steps=5,
             num_actors=4,
