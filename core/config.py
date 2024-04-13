@@ -427,6 +427,10 @@ class BaseConfig(object):
             self.td_steps = 5
             self.total_transitions = 100 * 1000
             self.training_steps = 20 * 1000
+        
+        # Downsample observations before representation network (See paper appendix Network Architecture)
+        self.downsample = self.image_based
+        
         self.set_game(args.env)
 
         if not self.do_consistency:
@@ -461,9 +465,10 @@ class BaseConfig(object):
         else:
             self.revisit_policy_search_rate = args.revisit_policy_search_rate
 
-        run_tag = f"img={self.image_based}/av={self.agent_view}/mf={self.model_free}/seed={self.seed}"
+        run_tag = f"img={self.image_based}/av={self.agent_view}/rsp={self.random_start_position}/rgp={self.random_goal_position}/seed={self.seed}"
+        env_name = args.env.split("-")[1]
         self.exp_path = os.path.join(
-            args.result_dir, args.case, args.env, args.info, run_tag
+            args.result_dir, env_name, args.info, run_tag
         )
 
         self.model_path = args.model_path or os.path.join(self.exp_path, 'model.p')
