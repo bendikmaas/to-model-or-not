@@ -143,6 +143,7 @@ class MinigridConfig(BaseConfig):
 
     def set_game(self, env_name):
         self.env_name = env_name
+        self.downsample = self.image_based
 
         # Initialize environment to fetch variables
         env = gym.make(env_name)
@@ -319,6 +320,101 @@ class MinigridConfig(BaseConfig):
         return MinigridWrapper(
             env, self.image_based, discount=self.discount, cvt_string=self.cvt_string
         )
+
+    def new_model_free_game(
+        self,
+        seed=0,
+        render_mode="rgb_array",
+        record_video=False,
+        save_path=None,
+        recording_interval=None,
+        test=False,
+        final_test=False,
+    ):
+        if seed is None:
+            seed = self.seed
+
+        # Base environment
+        env = gym.make(
+            self.env_name,
+            render_mode=render_mode,
+            agent_view_size=self.agent_view_size,
+            max_episode_steps=self.max_moves,
+        )
+
+        # Set action space to 3
+        env.action_space = gym.spaces.Discrete(3)
+
+        if self.random_start_position:
+            env = RandomizedStartPosition(env)
+        if self.random_goal_position:
+            env = RandomizedGoalPosition(env)
+
+        # Remove highlight if not agent view
+        if not self.agent_view:
+            env.unwrapped.highlight = False
+
+        # Wrap in video recorder
+        if record_video and save_path is not None:
+            from gymnasium.wrappers.record_video import RecordVideo
+
+            if final_test:
+                name_prefix = "final_test"
+                interval = 1
+            else:
+                name_prefix = "test" if test else "train"
+                interval = (
+                    self.recording_interval
+                    if recording_interval is None
+                    else recording_interval
+                )
+            env = RecordVideo(
+                env,
+                video_folder=str(save_path),
+                episode_trigger=lambda episode_id: episode_id % interval == 0,
+                name_prefix=name_prefix,
+            )
+
+        # Wrap according to configuration
+        if self.agent_view:
+            if self.image_based:
+                env = RGBImgPartialObsWrapper(env)
+                env = WarpFrame(
+                    env,
+                    height=self.obs_shape[1],
+                    width=self.obs_shape[2],
+                    grayscale=self.gray_scale,
+                    dict_space_key="image",
+                )
+            else:
+                env = PartialOneHotObjEncodingWrapper(
+                    env, objects=self.objects_to_encode
+                )
+        else:
+            if self.image_based:
+                env = RGBImgObsWrapper(env)
+                env = WarpFrame(
+                    env,
+                    height=self.obs_shape[1],
+                    width=self.obs_shape[2],
+                    grayscale=self.gray_scale,
+                    dict_space_key="image",
+                )
+            else:
+                env = WASDMinigridActionWrapper(env)
+                env.action_space = gym.spaces.Discrete(4)
+
+                env = FullyObsWrapper(env)
+                env = OneHotObjEncodingWrapper(env, objects=self.objects_to_encode)
+
+        # Wrap in reseed wrapper if training to only use a fixed subset of levels
+        if not (test or final_test):
+            seeds = list(range(seed, seed + self.num_train_levels))
+            env = ReseedWrapper(env, seeds=seeds)
+
+        # env = ImgObsWrapper(env)
+        env = self._wrap_env_for_stable_baseline(env)
+        return env
 
     def scalar_reward_loss(self, prediction, target):
         return -(torch.log_softmax(prediction, dim=1) * target).sum(1)
