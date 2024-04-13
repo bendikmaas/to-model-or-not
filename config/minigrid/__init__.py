@@ -39,7 +39,7 @@ N_TRAIN_LEVELS = 9
 class MinigridConfig(BaseConfig):
     def __init__(self):
         super(MinigridConfig, self).__init__(
-            training_steps=20 * 1000,
+            training_steps=10 * 1000,
             last_steps=0,
             test_interval=250,
             log_interval=100,
@@ -47,8 +47,8 @@ class MinigridConfig(BaseConfig):
             test_episodes=32,
             checkpoint_interval=100,
             target_model_interval=200,
-            save_ckpt_interval=20000,
-            recording_interval=100,
+            save_ckpt_interval=10 * 1000,
+            recording_interval=50,
             max_moves=200,
             test_max_moves=220,
             history_length=400,
@@ -69,12 +69,12 @@ class MinigridConfig(BaseConfig):
             lr_warm_up=0.01,
             lr_init=0.2,
             lr_decay_rate=0.5,
-            lr_decay_steps=10000,
+            lr_decay_steps=50 * 1000,
             auto_td_steps_ratio=0.3,
             # replay window
             start_transitions=2000,
-            total_transitions=100 * 1000,
-            replay_buffer_size=50 * 1000,
+            total_transitions=50 * 1000,
+            replay_buffer_size=100 * 1000,
             # frame skip & stack observation
             frame_skip=1,
             stacked_observations=4,
