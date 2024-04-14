@@ -11,9 +11,10 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-from minigrid.wrappers import ImgObsWrapper, FullyObsWrapper
+from minigrid.wrappers import ImgObsWrapper, FullyObsWrapper, ReseedWrapper
 from stable_baselines3 import A2C
-from stable_baselines3.common.torch_layers import BaseFeaturesExtractor
+from stable_baselines3.common.evaluation import evaluate_policy
+from stable_baselines3.common.torch_layers import BaseFeaturesExtractor, NatureCNN
 from stable_baselines3.common.policies import ActorCriticPolicy
 from stable_baselines3.common.vec_env import (
     DummyVecEnv,
@@ -334,7 +335,68 @@ class VecTransposeOneHotEncoding(VecTransposeImage):
         self.venv.close()
 
 
-def make_env():
+def make_env(i: int):
+    # Base environment
+    env = gym.make(
+        game_config.env_name,
+        render_mode="rgb_array",
+        agent_view_size=game_config.agent_view_size,
+        max_episode_steps=game_config.max_moves,
+    )
+
+    env.action_space = gym.spaces.Discrete(3)
+
+    if game_config.random_start_position:
+        env = RandomizedStartPosition(env)
+    if game_config.random_goal_position:
+        env = RandomizedGoalPosition(env)
+
+    seeds = [game_config.seed + i for i in range(game_config.num_train_levels)]
+    seed_idx = i % game_config.num_train_levels
+    env = ReseedWrapper(env, seeds=seeds, seed_idx=seed_idx)
+
+    # Remove highlight if not agent view
+    if not game_config.agent_view:
+        env.unwrapped.highlight = False
+
+    # Wrap according to configuration
+    if game_config.agent_view:
+        if game_config.image_based:
+            env = RGBImgPartialObsWrapper(env)
+            env = WarpFrame(
+                env,
+                height=game_config.obs_shape[1],
+                width=game_config.obs_shape[2],
+                grayscale=game_config.gray_scale,
+                dict_space_key="image",
+            )
+        else:
+            env = PartialOneHotObjEncodingWrapper(
+                env, objects=game_config.objects_to_encode
+            )
+    else:
+        if game_config.image_based:
+            env = RGBImgObsWrapper(env)
+            env = WarpFrame(
+                env,
+                height=game_config.obs_shape[1],
+                width=game_config.obs_shape[2],
+                grayscale=game_config.gray_scale,
+                dict_space_key="image",
+            )
+        else:
+            env = WASDMinigridActionWrapper(env)
+            env.action_space = gym.spaces.Discrete(4)
+
+            env = FullyObsWrapper(env)
+            env = OneHotObjEncodingWrapper(env, objects=game_config.objects_to_encode)
+
+    env = ImgObsWrapper(env)
+    env = Monitor(env)
+    return env
+
+
+def make_eval_env():
     # Base environment
     env = gym.make(
         game_config.env_name,
@@ -460,7 +522,7 @@ if __name__ == "__main__":
     # Process arguments
     args = parser.parse_args()
     args.device = "cuda" if (not args.no_cuda) and torch.cuda.is_available() else "cpu"
-    for image_based in [False]:
+    for image_based in [True]:
         for agent_view in [False]:
 
             # Load configuration
@@ -489,8 +551,12 @@ if __name__ == "__main__":
                 ),
             )
 
-            env_fns = [make_env for _ in range(game_config.batch_size)]
+            env_fns = [
+                (lambda i: lambda: make_env(i))(i)
+                for i in range(game_config.batch_size)
+            ]
             vec_env = DummyVecEnv(env_fns)
+            eval_vec_env = DummyVecEnv([make_eval_env])
 
             # TODO: Fix frame stacking
             """ vec_env = VecFrameStack(
@@ -499,22 +565,34 @@ if __name__ == "__main__":
 
             if game_config.image_based:
                 vec_env = VecTransposeImage(vec_env)
+                eval_vec_env = VecTransposeImage(eval_vec_env)
             else:
                 vec_env = VecTransposeOneHotEncoding(vec_env)
+                eval_vec_env = VecTransposeOneHotEncoding(eval_vec_env)
+
+            """ vec_env = VecFrameStack(
+                vec_env,
+                n_stack=game_config.stacked_observations,
+                channels_order="first",
+            ) """
 
             model = A2C(
-                CustomActorCriticPolicy,
+                "CnnPolicy",
                 vec_env,
-                learning_rate=game_config.lr_init,
-                gamma=game_config.discount,
-                vf_coef=game_config.value_loss_coeff,
-                ent_coef=game_config.policy_loss_coeff,
-                tensorboard_log="./mf_results/",
-                seed=game_config.seed,
-                device=game_config.device,
                 verbose=1,
-                policy_kwargs=policy_kwargs,
+                # policy_kwargs=policy_kwargs,
             )
-            # print(model.policy)
 
-            model.learn(total_timesteps=1e5)
+            for epoch in range(100):
+                model.learn(total_timesteps=2.5e3)
+
+                model.save("a2c_minigrid")
+
+                # Evaluate the agent
+                mean_reward, std_reward = evaluate_policy(
+                    model, eval_vec_env, n_eval_episodes=game_config.test_episodes
+                )
+
+                print(
+                    f"Mean reward after {(epoch+1)*2.5e2}k steps: {mean_reward:.2f} +/- {std_reward:.2f}"
+                )
