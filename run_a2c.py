@@ -461,25 +461,23 @@ if __name__ == "__main__":
     args = parser.parse_args()
     args.device = "cuda" if (not args.no_cuda) and torch.cuda.is_available() else "cpu"
     for image_based in [False]:
-        for agent_view in [False]:
 
-            # Load configuration
-            from config.minigrid import game_config
+        # Load configuration
+        from config.minigrid import game_config
 
-            game_config.image_based = image_based
-            game_config.agent_view = agent_view
-            game_config.set_A2C_config(args=args)
+        game_config.image_based = image_based
+        game_config.set_A2C_config(args=args)
 
-            # Global variables
-            DOWNSAMPLE = game_config.downsample
-            NUM_BLOCKS = game_config.blocks
-            NUM_CHANNELS = game_config.channels
-            REDUCED_CHANNELS_POLICY = game_config.reduced_channels_policy
-            REDUCED_CHANNELS_VALUE = game_config.reduced_channels_value
-            LAST_LAYER_DIM_PI = game_config.resnet_fc_policy_layers[-1]
-            LAST_LAYER_DIM_VF = game_config.resnet_fc_value_layers[-1]
-            OBS_SHAPE = game_config.obs_shape
-            MOMENTUM = game_config.momentum
+        # Global variables
+        DOWNSAMPLE = game_config.downsample
+        NUM_BLOCKS = game_config.blocks
+        NUM_CHANNELS = game_config.channels
+        REDUCED_CHANNELS_POLICY = game_config.reduced_channels_policy
+        REDUCED_CHANNELS_VALUE = game_config.reduced_channels_value
+        LAST_LAYER_DIM_PI = game_config.resnet_fc_policy_layers[-1]
+        LAST_LAYER_DIM_VF = game_config.resnet_fc_value_layers[-1]
+        OBS_SHAPE = game_config.obs_shape
+        MOMENTUM = game_config.momentum
 
             policy_kwargs = dict(
                 features_extractor_class=MuZeroFeatureExtractor,
@@ -502,19 +500,16 @@ if __name__ == "__main__":
             else:
                 vec_env = VecTransposeOneHotEncoding(vec_env)
 
+            policy = "CnnPolicy" if game_config.image_based else "MlpPolicy"
+            policy_kwargs = None if game_config.image_based else policy_kwargs
             model = A2C(
-                CustomActorCriticPolicy,
+                policy,
                 vec_env,
-                learning_rate=game_config.lr_init,
-                gamma=game_config.discount,
-                vf_coef=game_config.value_loss_coeff,
-                ent_coef=game_config.policy_loss_coeff,
-                tensorboard_log="./mf_results/",
-                seed=game_config.seed,
-                device=game_config.device,
-                verbose=1,
-                policy_kwargs=policy_kwargs,
-            )
+            tensorboard_log=f"./mf_results/img={image_based}/av={game_config.agent_view}",
+            #learning_rate=0.02,
+            verbose=1
+            #policy_kwargs=policy_kwargs,
+             )
             # print(model.policy)
 
             model.learn(total_timesteps=1e5)
