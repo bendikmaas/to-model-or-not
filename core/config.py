@@ -492,7 +492,8 @@ class BaseConfig(object):
         assert self.start_transitions >= self.batch_size
 
         run_tag = f"img={self.image_based}/av={self.agent_view}/seed={self.seed}"
-        self.exp_path = os.path.join(args.result_dir, args.env, args.info, run_tag)
+        env_name = args.env.split("-")[1]
+        self.exp_path = os.path.join(args.result_dir, env_name, args.info, run_tag)
 
         self.model_path = args.model_path or os.path.join(self.exp_path, "model.p")
         self.model_dir = os.path.join(self.exp_path, "model")
