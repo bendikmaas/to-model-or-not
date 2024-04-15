@@ -427,10 +427,10 @@ class BaseConfig(object):
             self.td_steps = 5
             self.total_transitions = 100 * 1000
             self.training_steps = 20 * 1000
-        
+
         # Downsample observations before representation network (See paper appendix Network Architecture)
         self.downsample = self.image_based
-        
+
         self.set_game(args.env)
 
         if not self.do_consistency:
@@ -479,36 +479,20 @@ class BaseConfig(object):
 
         return self.exp_path
 
-    def set_A2C_config(self, args):
+    def set_PPO_config(self, args):
         # reset config from the args
         self.case = args.case
         self.seed = args.seed
         self.device = args.device
         self.set_game(args.env)
 
+        # Sanity checks for the config
         assert 0 <= self.lr_warm_up <= 0.1
         assert 1 <= self.lstm_horizon_len <= self.num_unroll_steps
         assert self.start_transitions >= self.batch_size
 
-        """ if not self.do_consistency:
-            self.consistency_coeff = 0
-            self.augmentation = None
-            self.use_augmentation = False
-
-        if not self.do_reconstruction:
-            self.reconstruction_coeff = 0
-        
-        # augmentation
-        if self.consistency_coeff > 0 and args.use_augmentation:
-            self.use_augmentation = True
-            self.augmentation = args.augmentation
-        else:
-            self.use_augmentation = False """
-
         run_tag = f"img={self.image_based}/av={self.agent_view}/seed={self.seed}"
-        self.exp_path = os.path.join(
-            args.result_dir, args.case, args.env, args.info, run_tag
-        )
+        self.exp_path = os.path.join(args.result_dir, args.env, args.info, run_tag)
 
         self.model_path = args.model_path or os.path.join(self.exp_path, "model.p")
         self.model_dir = os.path.join(self.exp_path, "model")
