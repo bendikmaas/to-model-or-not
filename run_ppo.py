@@ -522,6 +522,14 @@ if __name__ == "__main__":
             env_fns = [(lambda i: lambda: make_env(i))(i) for i in range(16)]
             train_vec_env = DummyVecEnv(env_fns)
             eval_vec_env = DummyVecEnv([make_env(0, training=False)])
+            
+            # Frame stacking
+            train_vec_env = VecFrameStack(
+                train_vec_env, n_stack=game_config.stacked_observations, channels_order="first"
+            )
+            eval_vec_env = VecFrameStack(
+                eval_vec_env, n_stack=game_config.stacked_observations, channels_order="first"
+            )
 
             # Transpose image observations
             if game_config.image_based:
@@ -541,10 +549,6 @@ if __name__ == "__main__":
                 render=False,
             )
 
-            # TODO: Fix frame stacking
-            """ vec_env = VecFrameStack(
-                vec_env, n_stack=game_config.stacked_observations, channels_order="first"
-            ) """
 
             # Create model
             policy = "CnnPolicy" if game_config.image_based else "MlpPolicy"
@@ -557,7 +561,7 @@ if __name__ == "__main__":
 
             # Train model
             model.learn(
-                total_timesteps=2e6,
+                total_timesteps=1e6,
                 log_interval=1,
                 progress_bar=True,
                 callback=eval_callback,
