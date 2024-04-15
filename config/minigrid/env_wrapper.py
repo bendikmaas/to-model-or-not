@@ -384,3 +384,17 @@ class RandomizedGoalPosition(Wrapper):
 
         obs = self.env.unwrapped.gen_obs()
         return obs, {}
+
+class LavaPunishmentWrapper(Wrapper):
+
+    def __init__(self, env: Env, punishment: float = -1.0):
+        super().__init__(env)
+        self.punishment = punishment
+
+    def step(self, action: Any) -> tuple[Any, SupportsFloat, bool, dict[str, Any]]:
+        obs, reward, terminated, truncated, info = super().step(action)
+        if self.unwrapped.agent_pos is not None:
+            if self.unwrapped.grid.get(*self.unwrapped.agent_pos) is not None:
+                if self.unwrapped.grid.get(*self.unwrapped.agent_pos).type == "lava":
+                    reward = self.punishment
+        return obs, reward, terminated, truncated, info

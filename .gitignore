@@ -8,6 +8,7 @@ __pycache__/
 .idea/*
 
 # results dir
+/old_results
 /results
 /files
 
