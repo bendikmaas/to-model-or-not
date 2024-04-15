@@ -110,6 +110,59 @@ class MuZeroFeatureExtractor(BaseFeaturesExtractor):
         return x
 
 
+class CustomFeatureExtractor(BaseFeaturesExtractor):
+    """
+    CNN from DQN Nature paper:
+        Mnih, Volodymyr, et al.
+        "Human-level control through deep reinforcement learning."
+        Nature 518.7540 (2015): 529-533.
+
+    :param observation_space:
+    :param features_dim: Number of features extracted.
+        This corresponds to the number of unit for the last layer.
+    :param normalized_image: Whether to assume that the image is already normalized
+        or not (this disables dtype and bounds checks): when True, it only checks that
+        the space is a Box and has 3 dimensions.
+        Otherwise, it checks that it has expected dtype (uint8) and bounds (values in [0, 255]).
+    """
+
+    def __init__(
+        self,
+        observation_space: gym.Space,
+        downsample: bool,
+        features_dim: int = 512,
+    ) -> None:
+        assert isinstance(observation_space, spaces.Box), (
+            "NatureCNN must be used with a gym.spaces.Box ",
+            f"observation space, not {observation_space}",
+        )
+        super().__init__(observation_space, features_dim)
+        # We assume CxHxW images (channels first)
+        # Re-ordering will be done by pre-preprocessing or wrapper
+
+        n_input_channels = observation_space.shape[0]
+        self.cnn = nn.Sequential(
+            nn.Conv2d(n_input_channels, 32, kernel_size=8, stride=4, padding=0),
+            nn.ReLU(),
+            nn.Conv2d(32, 64, kernel_size=4, stride=2, padding=0),
+            nn.ReLU(),
+            nn.Conv2d(64, 64, kernel_size=3, stride=1, padding=0),
+            nn.ReLU(),
+            nn.Flatten(),
+        )
+
+        # Compute shape by doing one forward pass
+        with torch.no_grad():
+            n_flatten = self.cnn(
+                torch.as_tensor(observation_space.sample()[None]).float()
+            ).shape[1]
+
+        self.linear = nn.Sequential(nn.Linear(n_flatten, features_dim), nn.ReLU())
+
+    def forward(self, observations: torch.Tensor) -> torch.Tensor:
+        return self.linear(self.cnn(observations))
+
+
 class PredictionNetwork(nn.Module):
     def __init__(
         self,
@@ -565,17 +618,14 @@ if __name__ == "__main__":
             MOMENTUM = game_config.momentum
 
             policy_kwargs = dict(
-                features_extractor_class=MuZeroFeatureExtractor,
+                features_extractor_class=CustomFeatureExtractor,
                 features_extractor_kwargs=dict(
                     features_dim=512,
                     downsample=DOWNSAMPLE,
                 ),
             )
 
-            env_fns = [
-                (lambda i: lambda: make_env(i))(i)
-                for i in range(16)
-            ]
+            env_fns = [(lambda i: lambda: make_env(i))(i) for i in range(16)]
             vec_env = DummyVecEnv(env_fns)
             eval_vec_env = DummyVecEnv([make_eval_env])
 
@@ -604,8 +654,7 @@ if __name__ == "__main__":
                 deterministic=True,
                 render=False,
             )
-            
-            
+
             policy = "CnnPolicy" if game_config.image_based else "MlpPolicy"
             policy_kwargs = None if game_config.image_based else policy_kwargs
             model = A2C(
