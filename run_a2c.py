@@ -13,6 +13,7 @@ import torch.nn as nn
 
 from minigrid.wrappers import ImgObsWrapper, FullyObsWrapper, ReseedWrapper
 from stable_baselines3 import A2C
+from stable_baselines3.common.callbacks import EvalCallback
 from stable_baselines3.common.evaluation import evaluate_policy
 from stable_baselines3.common.torch_layers import BaseFeaturesExtractor, NatureCNN
 from stable_baselines3.common.policies import ActorCriticPolicy
@@ -74,6 +75,7 @@ class MuZeroFeatureExtractor(BaseFeaturesExtractor):
         self.bn = nn.BatchNorm2d(num_channels, momentum=momentum)
         self.resblock1 = ResidualBlock(num_channels, num_channels, momentum=momentum)
         self.resblock2 = ResidualBlock(num_channels, num_channels, momentum=momentum)
+        
 
     def forward(self, observations: torch.Tensor) -> torch.Tensor:
         if self.downsample:
@@ -525,22 +527,22 @@ if __name__ == "__main__":
     for image_based in [True]:
         for agent_view in [False]:
 
-        # Load configuration
-        from config.minigrid import game_config
+            # Load configuration
+            from config.minigrid import game_config
 
-        game_config.image_based = image_based
-        game_config.set_A2C_config(args=args)
+            game_config.image_based = image_based
+            game_config.set_A2C_config(args=args)
 
-        # Global variables
-        DOWNSAMPLE = game_config.downsample
-        NUM_BLOCKS = game_config.blocks
-        NUM_CHANNELS = game_config.channels
-        REDUCED_CHANNELS_POLICY = game_config.reduced_channels_policy
-        REDUCED_CHANNELS_VALUE = game_config.reduced_channels_value
-        LAST_LAYER_DIM_PI = game_config.resnet_fc_policy_layers[-1]
-        LAST_LAYER_DIM_VF = game_config.resnet_fc_value_layers[-1]
-        OBS_SHAPE = game_config.obs_shape
-        MOMENTUM = game_config.momentum
+            # Global variables
+            DOWNSAMPLE = game_config.downsample
+            NUM_BLOCKS = game_config.blocks
+            NUM_CHANNELS = game_config.channels
+            REDUCED_CHANNELS_POLICY = game_config.reduced_channels_policy
+            REDUCED_CHANNELS_VALUE = game_config.reduced_channels_value
+            LAST_LAYER_DIM_PI = game_config.resnet_fc_policy_layers[-1]
+            LAST_LAYER_DIM_VF = game_config.resnet_fc_value_layers[-1]
+            OBS_SHAPE = game_config.obs_shape
+            MOMENTUM = game_config.momentum
 
             policy_kwargs = dict(
                 features_extractor_class=MuZeroFeatureExtractor,
@@ -552,7 +554,7 @@ if __name__ == "__main__":
 
             env_fns = [
                 (lambda i: lambda: make_env(i))(i)
-                for i in range(game_config.batch_size)
+                for i in range(16)
             ]
             vec_env = DummyVecEnv(env_fns)
             eval_vec_env = DummyVecEnv([make_eval_env])
@@ -574,21 +576,33 @@ if __name__ == "__main__":
                 n_stack=game_config.stacked_observations,
                 channels_order="first",
             ) """
-
+            eval_callback = EvalCallback(
+                eval_vec_env,
+                best_model_save_path=f"./mf_results/LavaGap/eval",
+                log_path=f"./mf_results/LavaGap/eval",
+                eval_freq=250,
+                deterministic=True,
+                render=False,
+            )
+            
+            
             policy = "CnnPolicy" if game_config.image_based else "MlpPolicy"
             policy_kwargs = None if game_config.image_based else policy_kwargs
             model = A2C(
                 policy,
                 vec_env,
-                tensorboard_log=f"./mf_results/img={image_based}/av={game_config.agent_view}",
+                tensorboard_log=f"./mf_results/LavaGap/train",
                 #learning_rate=0.02,
                 verbose=1,
                 #policy_kwargs=policy_kwargs,
-             )
+            )
             # print(model.policy)
+            
+            model.learn(total_timesteps=2.5e5, log_interval=100, progress_bar=True, callback=eval_callback)
+            exit()
 
             for epoch in range(100):
-                model.learn(total_timesteps=2.5e3)
+                model.learn(total_timesteps=2.5e3, log_interval=100)
 
                 model.save("a2c_minigrid")
 
@@ -598,5 +612,5 @@ if __name__ == "__main__":
                 )
 
                 print(
-                    f"Mean reward after {(epoch+1)*2.5e2}k steps: {mean_reward:.2f} +/- {std_reward:.2f}"
+                    f"Mean reward after {(epoch+1)*2.5e3} steps: {mean_reward:.4f} +/- {std_reward:.4f}"
                 )
