@@ -49,11 +49,11 @@ class MuZeroFeatureExtractor(BaseFeaturesExtractor):
     def __init__(
         self,
         observation_space: gym.Space,
+        downsample: bool,
         features_dim: int = 512,
         # normalized_image: bool = False,
         num_channels: int = 64,
         momentum: float = 0.1,
-        downsample: bool = False,
     ) -> None:
         super().__init__(observation_space, features_dim)
 
@@ -74,6 +74,25 @@ class MuZeroFeatureExtractor(BaseFeaturesExtractor):
         self.bn = nn.BatchNorm2d(num_channels, momentum=momentum)
         self.resblock1 = ResidualBlock(num_channels, num_channels, momentum=momentum)
         self.resblock2 = ResidualBlock(num_channels, num_channels, momentum=momentum)
+        self.flatten = nn.Flatten()
+
+        # Compute shape by doing one forward pass
+        with torch.no_grad():
+            if self.downsample:
+                x = self.downsample_net(
+                    torch.as_tensor(observation_space.sample()[None]).float()
+                )
+            else:
+                x = self.conv(torch.as_tensor(observation_space.sample()[None]).float())
+                x = self.bn(x)
+                x = nn.functional.relu(x)
+
+            x = self.resblock1(x)
+            x = self.resblock2(x)
+            x = self.flatten(x)
+
+        n_flatten = x.shape[0]
+        self.linear = nn.Sequential(nn.Linear(n_flatten, features_dim), nn.ReLU())
 
     def forward(self, observations: torch.Tensor) -> torch.Tensor:
         if self.downsample:
@@ -85,6 +104,8 @@ class MuZeroFeatureExtractor(BaseFeaturesExtractor):
 
         x = self.resblock1(x)
         x = self.resblock2(x)
+        x = self.flatten(x)
+        x = self.linear(x)
         return x
 
 
@@ -546,7 +567,7 @@ if __name__ == "__main__":
             policy_kwargs = dict(
                 features_extractor_class=MuZeroFeatureExtractor,
                 features_extractor_kwargs=dict(
-                    features_dim=512,  # Unused, as we use custom features extractor
+                    features_dim=512,
                     downsample=DOWNSAMPLE,
                 ),
             )
