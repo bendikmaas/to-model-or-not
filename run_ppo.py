@@ -446,7 +446,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="A2C agent")
     parser.add_argument(
         "--env",
-        default="MiniGrid-LavaGapS7-v0",
+        default="MiniGrid-LavaGapS5-v0",
         help="Name of the environment",
     )
     parser.add_argument(
@@ -531,11 +531,6 @@ if __name__ == "__main__":
                 train_vec_env = VecTransposeOneHotEncoding(train_vec_env)
                 eval_vec_env = VecTransposeOneHotEncoding(eval_vec_env)
 
-            # Frame stacking
-            vec_env = VecFrameStack(
-                vec_env, n_stack=game_config.stacked_observations, channels_order="first"
-            )
-            
             eval_callback = TensorboardEvalCallback(
                 eval_vec_env,
                 best_model_save_path=os.join(experiment_path, "best_model"),
@@ -546,6 +541,10 @@ if __name__ == "__main__":
                 render=False,
             )
 
+            # TODO: Fix frame stacking
+            """ vec_env = VecFrameStack(
+                vec_env, n_stack=game_config.stacked_observations, channels_order="first"
+            ) """
 
             # Create model
             policy = "CnnPolicy" if game_config.image_based else "MlpPolicy"
@@ -558,7 +557,7 @@ if __name__ == "__main__":
 
             # Train model
             model.learn(
-                total_timesteps=1e6,
+                total_timesteps=2e6,
                 log_interval=1,
                 progress_bar=True,
                 callback=eval_callback,

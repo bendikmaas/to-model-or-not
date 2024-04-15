@@ -22,9 +22,9 @@ export CUDA_VISIBLE_DEVICES=$(echo "$GPU_MEM_INFO" | awk -F "," '{print $1}' | p
 #     to `ray satus`
 #  2. Increase CPU actors until CPU full.
 # ml7: 6, 8
-# ml9: 2, 42
-GPU_ACTORS=2
-CPU_ACTORS=42
+# ml9: 2, 48
+GPU_ACTORS=6
+CPU_ACTORS=8
 
 # Run script
 python main.py --env "MiniGrid-LavaGapS7-v0" --case minigrid --opr train \
@@ -34,6 +34,6 @@ python main.py --env "MiniGrid-LavaGapS7-v0" --case minigrid --opr train \
   --use_priority \
   --use_max_priority \
   --amp_type 'torch_amp' \
-  --info 'MuZero-more-stable-lr-and-buffer--10k' \
+  --info 'MuZero-stable-baseline' \
   --auto_resume \
   --object_store_mem=1000000000

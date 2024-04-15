@@ -12,7 +12,7 @@ import torch
 import torch.nn as nn
 
 from minigrid.wrappers import ImgObsWrapper, FullyObsWrapper, ReseedWrapper
-from stable_baselines3 import A2C, PPO
+from stable_baselines3 import A2C
 from stable_baselines3.common.callbacks import EvalCallback
 from stable_baselines3.common.evaluation import evaluate_policy
 from stable_baselines3.common.torch_layers import BaseFeaturesExtractor, NatureCNN
@@ -111,43 +111,45 @@ class MuZeroFeatureExtractor(BaseFeaturesExtractor):
 
 
 class CustomFeatureExtractor(BaseFeaturesExtractor):
+    """
+    CNN from DQN Nature paper:
+        Mnih, Volodymyr, et al.
+        "Human-level control through deep reinforcement learning."
+        Nature 518.7540 (2015): 529-533.
+
+    :param observation_space:
+    :param features_dim: Number of features extracted.
+        This corresponds to the number of unit for the last layer.
+    :param normalized_image: Whether to assume that the image is already normalized
+        or not (this disables dtype and bounds checks): when True, it only checks that
+        the space is a Box and has 3 dimensions.
+        Otherwise, it checks that it has expected dtype (uint8) and bounds (values in [0, 255]).
+    """
 
     def __init__(
         self,
         observation_space: gym.Space,
         downsample: bool,
         features_dim: int = 512,
-        momentum: float = 0.1
     ) -> None:
+        assert isinstance(observation_space, spaces.Box), (
+            "NatureCNN must be used with a gym.spaces.Box ",
+            f"observation space, not {observation_space}",
+        )
         super().__init__(observation_space, features_dim)
-        
         # We assume CxHxW images (channels first)
         # Re-ordering will be done by pre-preprocessing or wrapper
+
         n_input_channels = observation_space.shape[0]
-        
-        # CNN
-        if downsample:
-            self.cnn = nn.Sequential(
-                nn.Conv2d(n_input_channels, 32, kernel_size=8, stride=4, padding=0),
-                nn.ReLU(),
-                nn.Conv2d(32, 64, kernel_size=3, stride=2, padding=1),
-                nn.ReLU(),
-                nn.Conv2d(64, 64, kernel_size=3, stride=2, padding=1),
-                nn.ReLU(),
-                nn.Conv2d(64, 64, kernel_size=3, stride=1, padding=1),
-                nn.ReLU(),
-                nn.Flatten(),
-            )
-        else:
-            self.cnn = nn.Sequential(
-                nn.Conv2d(n_input_channels, 16, (2, 2)),
-                nn.ReLU(),
-                nn.Conv2d(16, 32, (2, 2)),
-                nn.ReLU(),
-                nn.Conv2d(32, 64, (2, 2)),
-                nn.ReLU(),
-                nn.Flatten(),
-            )
+        self.cnn = nn.Sequential(
+            nn.Conv2d(n_input_channels, 32, kernel_size=8, stride=4, padding=0),
+            nn.ReLU(),
+            nn.Conv2d(32, 64, kernel_size=4, stride=2, padding=0),
+            nn.ReLU(),
+            nn.Conv2d(64, 64, kernel_size=3, stride=1, padding=0),
+            nn.ReLU(),
+            nn.Flatten(),
+        )
 
         # Compute shape by doing one forward pass
         with torch.no_grad():
@@ -532,7 +534,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="A2C agent")
     parser.add_argument(
         "--env",
-        default="MiniGrid-LavaGapS7-v0",
+        default="MiniGrid-LavaGapS5-v0",
         help="Name of the environment",
     )
     parser.add_argument(
@@ -595,8 +597,8 @@ if __name__ == "__main__":
     # Process arguments
     args = parser.parse_args()
     args.device = "cuda" if (not args.no_cuda) and torch.cuda.is_available() else "cpu"
-    for image_based in [False, True]:
-        for model_class in [PPO]:
+    for image_based in [True]:
+        for agent_view in [False]:
 
             # Load configuration
             from config.minigrid import game_config
@@ -619,9 +621,8 @@ if __name__ == "__main__":
                 features_extractor_class=CustomFeatureExtractor,
                 features_extractor_kwargs=dict(
                     features_dim=512,
-                    downsample=DOWNSAMPLE
+                    downsample=DOWNSAMPLE,
                 ),
-                net_arch = []
             )
 
             env_fns = [(lambda i: lambda: make_env(i))(i) for i in range(16)]
@@ -655,16 +656,32 @@ if __name__ == "__main__":
             )
 
             policy = "CnnPolicy" if game_config.image_based else "MlpPolicy"
-            #policy_kwargs = None if game_config.image_based else policy_kwargs
-             
-            model = model_class(
+            policy_kwargs = None if game_config.image_based else policy_kwargs
+            model = A2C(
                 policy,
                 vec_env,
-                tensorboard_log=f"./mf_results/MuZeroExtractor/{game_config.env_name}/img={game_config.image_based}",
+                tensorboard_log=f"./mf_results/MuZeroExtractor/LavaGap/train",
+                #learning_rate=0.02,
                 verbose=1,
-                #policy_kwargs=policy_kwargs,
+                policy_kwargs=policy_kwargs,
             )
+            # print(model.policy)
             
-            model.learn(total_timesteps=2e6, log_interval=1, progress_bar=True, 
+            model.learn(total_timesteps=2.5e5, log_interval=100, progress_bar=True, 
                         #callback=eval_callback
-            )
+                        )
+            exit()
+
+            for epoch in range(100):
+                model.learn(total_timesteps=2.5e3, log_interval=100)
+
+                model.save("a2c_minigrid")
+
+                # Evaluate the agent
+                mean_reward, std_reward = evaluate_policy(
+                    model, eval_vec_env, n_eval_episodes=game_config.test_episodes
+                )
+
+                print(
+                    f"Mean reward after {(epoch+1)*2.5e3} steps: {mean_reward:.4f} +/- {std_reward:.4f}"
+                )
