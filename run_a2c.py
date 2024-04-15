@@ -546,23 +546,22 @@ if __name__ == "__main__":
     for image_based in [True]:
         for agent_view in [False]:
 
-            # Load configuration
-            from config.minigrid import game_config
+        # Load configuration
+        from config.minigrid import game_config
 
-            game_config.image_based = image_based
-            game_config.agent_view = agent_view
-            game_config.set_A2C_config(args=args)
+        game_config.image_based = image_based
+        game_config.set_A2C_config(args=args)
 
-            # Global variables
-            DOWNSAMPLE = game_config.downsample
-            NUM_BLOCKS = game_config.blocks
-            NUM_CHANNELS = game_config.channels
-            REDUCED_CHANNELS_POLICY = game_config.reduced_channels_policy
-            REDUCED_CHANNELS_VALUE = game_config.reduced_channels_value
-            LAST_LAYER_DIM_PI = game_config.resnet_fc_policy_layers[-1]
-            LAST_LAYER_DIM_VF = game_config.resnet_fc_value_layers[-1]
-            OBS_SHAPE = game_config.obs_shape
-            MOMENTUM = game_config.momentum
+        # Global variables
+        DOWNSAMPLE = game_config.downsample
+        NUM_BLOCKS = game_config.blocks
+        NUM_CHANNELS = game_config.channels
+        REDUCED_CHANNELS_POLICY = game_config.reduced_channels_policy
+        REDUCED_CHANNELS_VALUE = game_config.reduced_channels_value
+        LAST_LAYER_DIM_PI = game_config.resnet_fc_policy_layers[-1]
+        LAST_LAYER_DIM_VF = game_config.resnet_fc_value_layers[-1]
+        OBS_SHAPE = game_config.obs_shape
+        MOMENTUM = game_config.momentum
 
             policy_kwargs = dict(
                 features_extractor_class=MuZeroFeatureExtractor,
@@ -597,12 +596,17 @@ if __name__ == "__main__":
                 channels_order="first",
             ) """
 
+            policy = "CnnPolicy" if game_config.image_based else "MlpPolicy"
+            policy_kwargs = None if game_config.image_based else policy_kwargs
             model = A2C(
-                "CnnPolicy",
+                policy,
                 vec_env,
+                tensorboard_log=f"./mf_results/img={image_based}/av={game_config.agent_view}",
+                #learning_rate=0.02,
                 verbose=1,
-                # policy_kwargs=policy_kwargs,
-            )
+                #policy_kwargs=policy_kwargs,
+             )
+            # print(model.policy)
 
             for epoch in range(100):
                 model.learn(total_timesteps=2.5e3)
