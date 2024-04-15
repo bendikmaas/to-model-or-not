@@ -92,7 +92,7 @@ class MuZeroFeatureExtractor(BaseFeaturesExtractor):
             x = self.resblock2(x)
             x = self.flatten(x)
 
-        n_flatten = x.shape[0]
+        n_flatten = x.shape[1]
         self.linear = nn.Sequential(nn.Linear(n_flatten, features_dim), nn.ReLU())
 
     def forward(self, observations: torch.Tensor) -> torch.Tensor:
@@ -611,14 +611,16 @@ if __name__ == "__main__":
             model = A2C(
                 policy,
                 vec_env,
-                tensorboard_log=f"./mf_results/LavaGap/train",
+                tensorboard_log=f"./mf_results/MuZeroExtractor/LavaGap/train",
                 #learning_rate=0.02,
                 verbose=1,
-                #policy_kwargs=policy_kwargs,
+                policy_kwargs=policy_kwargs,
             )
             # print(model.policy)
             
-            model.learn(total_timesteps=2.5e5, log_interval=100, progress_bar=True, callback=eval_callback)
+            model.learn(total_timesteps=2.5e5, log_interval=100, progress_bar=True, 
+                        #callback=eval_callback
+                        )
             exit()
 
             for epoch in range(100):
