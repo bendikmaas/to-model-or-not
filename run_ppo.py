@@ -510,7 +510,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
     args.device = "cuda" if (not args.no_cuda) and torch.cuda.is_available() else "cpu"
     for image_based in [True, False]:
-        for agent_view in [True]:
+        for agent_view in [True, False]:
 
             # Load configuration
             from config.minigrid import game_config
@@ -580,4 +580,4 @@ if __name__ == "__main__":
             )
 
             # Save model
-            model.save(f"./mf_results/LavaGap/train-eval")
+            model.save(os.path.join(experiment_path, "saved_model"))
