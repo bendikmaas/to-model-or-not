@@ -34,6 +34,6 @@ python main.py --env "MiniGrid-LavaGapS7-v0" --case minigrid --opr train \
   --use_priority \
   --use_max_priority \
   --amp_type 'torch_amp' \
-  --info 'MuZero-stable-baseline' \
+  --info 'MuZero' \
   --auto_resume \
   --object_store_mem=1000000000

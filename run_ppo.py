@@ -446,7 +446,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="PPO agent")
     parser.add_argument(
         "--env",
-        default="MiniGrid-LavaGapS5-v0",
+        default="MiniGrid-LavaGapS7-v0",
         help="Name of the environment",
     )
     parser.add_argument(
@@ -510,31 +510,18 @@ if __name__ == "__main__":
     args = parser.parse_args()
     args.device = "cuda" if (not args.no_cuda) and torch.cuda.is_available() else "cpu"
     for image_based in [True, False]:
-        for agent_view in [True, False]:
+        for agent_view in [False, True]:
 
             # Load configuration
             from config.minigrid import game_config
 
             game_config.image_based = image_based
-            game_config.agent_view = agent_view
             experiment_path = game_config.set_PPO_config(args=args)
 
             # Create environments
             env_fns = [(lambda i: lambda: make_env(i))(i) for i in range(16)]
             train_vec_env = DummyVecEnv(env_fns)
-            eval_vec_env = DummyVecEnv([make_eval_env])
-
-            # Frame stacking
-            train_vec_env = VecFrameStack(
-                train_vec_env,
-                n_stack=game_config.stacked_observations,
-                channels_order="first",
-            )
-            eval_vec_env = VecFrameStack(
-                eval_vec_env,
-                n_stack=game_config.stacked_observations,
-                channels_order="first",
-            )
+            eval_vec_env = DummyVecEnv([make_env(0, training=False)])
 
             # Transpose image observations
             if game_config.image_based:
@@ -546,13 +533,18 @@ if __name__ == "__main__":
 
             eval_callback = TensorboardEvalCallback(
                 eval_vec_env,
-                best_model_save_path=os.path.join(experiment_path, "best_model"),
-                log_path=os.path.join(experiment_path, "logs"),
-                eval_freq=500,
+                best_model_save_path=os.join(experiment_path, "best_model"),
+                log_path=os.join(experiment_path, "logs"),
+                eval_freq=250,
                 n_eval_episodes=game_config.test_episodes,
                 deterministic=True,
                 render=False,
             )
+
+            # TODO: Fix frame stacking
+            """ vec_env = VecFrameStack(
+                vec_env, n_stack=game_config.stacked_observations, channels_order="first"
+            ) """
 
             # Create model
             policy = "CnnPolicy" if game_config.image_based else "MlpPolicy"
@@ -595,4 +587,4 @@ if __name__ == "__main__":
             )
 
             # Save model
-            model.save(os.path.join(experiment_path, "saved_model"))
+            model.save(f"./mf_results/LavaGap/train-eval")
