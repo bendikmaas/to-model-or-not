@@ -104,8 +104,8 @@ def test(config, model, counter, test_episodes, device, render,
             game_histories[i].init([init_obses[i] for _ in range(config.stacked_observations)])
 
         step = 0
-        ep_ori_rewards = np.zeros(test_episodes)
-        ep_clip_rewards = np.zeros(test_episodes)
+        test_returns = np.zeros(test_episodes)
+        ep_clipped_rewards = np.zeros(test_episodes)
         # loop
         while not dones.all():
 
@@ -149,33 +149,40 @@ def test(config, model, counter, test_episodes, device, render,
                 distributions, value, env = roots_distributions[i], roots_values[i], envs[i]
                 # select the argmax, not sampling
                 action, _ = select_action(
-                    distributions, config.model_free, temperature=1, deterministic=deterministic
+                    distributions, config.model_free, temperature=1, deterministic=True
                 )
 
-                obs, ori_reward, done, info = env.step(action)
+                obs, reward, done, _ = env.step(action)
                 if config.clip_reward:
-                    clip_reward = np.sign(ori_reward)
+                    clipped_reward = np.sign(reward)
                 else:
-                    clip_reward = ori_reward
+                    clipped_reward = reward
 
                 if config.model_free:
                     game_histories[i].store_inference_stats(distributions, value)
                 else:
                     game_histories[i].store_search_stats(distributions, value)
-                game_histories[i].append(action, obs, clip_reward)
+                game_histories[i].append(action, obs, clipped_reward)
 
                 dones[i] = done
-                ep_ori_rewards[i] += ori_reward
-                ep_clip_rewards[i] += clip_reward
+                test_returns[i] += reward
+                ep_clipped_rewards[i] += clipped_reward
 
             step += 1
             if use_pb:
-                pb.set_description('{} In step {}, scores: {}(max: {}, min: {}) currently.'
-                                   ''.format(config.env_name, counter,
-                                             ep_ori_rewards.mean(), ep_ori_rewards.max(), ep_ori_rewards.min()))
+                pb.set_description(
+                    "{} In step {}, scores: {}(max: {}, min: {}) currently."
+                    "".format(
+                        config.env_name,
+                        counter,
+                        test_returns.mean(),
+                        test_returns.max(),
+                        test_returns.min(),
+                    )
+                )
                 pb.update(1)
 
         for env in envs:
             env.close()
 
-    return ep_ori_rewards, save_path
+    return test_returns, save_path

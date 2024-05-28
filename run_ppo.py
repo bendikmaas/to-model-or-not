@@ -443,7 +443,7 @@ def make_eval_env():
 if __name__ == "__main__":
 
     # Gather arguments
-    parser = argparse.ArgumentParser(description="A2C agent")
+    parser = argparse.ArgumentParser(description="PPO agent")
     parser.add_argument(
         "--env",
         default="MiniGrid-LavaGapS5-v0",
@@ -472,7 +472,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--test_episodes",
         type=int,
-        default=10,
+        default=100,
         help="Evaluation episode count (default: %(default)s)",
     )
     parser.add_argument(
@@ -496,7 +496,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--model_path",
         type=str,
-        default="./results/test_model.p",
+        default="/Users/bendikaas/Master/Kode/ezero-remastered/results/LavaGapS7/PPO/img=False/av=False/seed=0/best_model/best_model.zip",
         help="load model path",
     )
     parser.add_argument(
@@ -510,18 +510,31 @@ if __name__ == "__main__":
     args = parser.parse_args()
     args.device = "cuda" if (not args.no_cuda) and torch.cuda.is_available() else "cpu"
     for image_based in [True, False]:
-        for agent_view in [False, True]:
+        for agent_view in [True, False]:
 
             # Load configuration
             from config.minigrid import game_config
 
             game_config.image_based = image_based
+            game_config.agent_view = agent_view
             experiment_path = game_config.set_PPO_config(args=args)
 
             # Create environments
             env_fns = [(lambda i: lambda: make_env(i))(i) for i in range(16)]
             train_vec_env = DummyVecEnv(env_fns)
-            eval_vec_env = DummyVecEnv([make_env(0, training=False)])
+            eval_vec_env = DummyVecEnv([make_eval_env])
+
+            # Frame stacking
+            train_vec_env = VecFrameStack(
+                train_vec_env,
+                n_stack=game_config.stacked_observations,
+                channels_order="first",
+            )
+            eval_vec_env = VecFrameStack(
+                eval_vec_env,
+                n_stack=game_config.stacked_observations,
+                channels_order="first",
+            )
 
             # Transpose image observations
             if game_config.image_based:
@@ -533,18 +546,13 @@ if __name__ == "__main__":
 
             eval_callback = TensorboardEvalCallback(
                 eval_vec_env,
-                best_model_save_path=os.join(experiment_path, "best_model"),
-                log_path=os.join(experiment_path, "logs"),
-                eval_freq=250,
+                best_model_save_path=os.path.join(experiment_path, "best_model"),
+                log_path=os.path.join(experiment_path, "logs"),
+                eval_freq=500,
                 n_eval_episodes=game_config.test_episodes,
                 deterministic=True,
                 render=False,
             )
-
-            # TODO: Fix frame stacking
-            """ vec_env = VecFrameStack(
-                vec_env, n_stack=game_config.stacked_observations, channels_order="first"
-            ) """
 
             # Create model
             policy = "CnnPolicy" if game_config.image_based else "MlpPolicy"
@@ -553,11 +561,23 @@ if __name__ == "__main__":
                 train_vec_env,
                 tensorboard_log=experiment_path,
                 verbose=1,
+                seed=game_config.seed,
             )
+
+            # Print model summary
+            print(model.policy)
+
+            # Print number of parameters
+            num_params = sum(p.numel() for p in model.policy.parameters())
+            print(
+                f"Image based: {game_config.image_based} | Agent view: {game_config.agent_view}"
+            )
+            print(f"Number of parameters: {num_params}")
+            continue
 
             # Train model
             model.learn(
-                total_timesteps=2e6,
+                total_timesteps=1e6,
                 log_interval=1,
                 progress_bar=True,
                 callback=eval_callback,
@@ -575,4 +595,4 @@ if __name__ == "__main__":
             )
 
             # Save model
-            model.save(f"./mf_results/LavaGap/train-eval")
+            model.save(os.path.join(experiment_path, "saved_model"))
